@@ -1012,9 +1012,20 @@ struct connectdata {
     TUNNEL_CONNECT, /* CONNECT has been sent off */
     TUNNEL_COMPLETE /* CONNECT response received completely */
   } tunnel_state[2]; /* two separate ones to allow FTP */
+
+   struct connectbundle *bundle; /* The bundle we are member of (if any) */
 };
 
 /* The end of connectdata. */
+
+/* connectbundle */
+
+struct connectbundle {
+   int num_connections; /* Number of connections in the bundle */
+   struct curl_llist *conn_list; /* The connectdata members of the bundle */
+};
+
+/* The end of connectbundle. */
 
 /*
  * Struct to keep statistical and informational data.

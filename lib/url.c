@@ -259,6 +259,100 @@ static const struct Curl_handler Curl_handler_dummy = {
   PROTOPT_NONE                          /* flags */
 };
 
+/*------------------------------*/
+static void conn_llist_dtor(void *user, void *element)
+{
+  struct connectdata *data = element;
+  (void)user;
+
+  data->bundle = NULL;
+}
+
+static CURLcode connectbundle_create(struct SessionHandle *data,
+                                     struct connectbundle **cb_ptr)
+{
+  (void)data;
+  *cb_ptr = malloc(sizeof(struct connectbundle));
+  infof(data, "connectbundle_create(%p)\n", *cb_ptr);
+  if(!*cb_ptr)
+    return CURLE_OUT_OF_MEMORY;
+
+  (*cb_ptr)->num_connections = 0;
+  (*cb_ptr)->conn_list = Curl_llist_alloc((curl_llist_dtor) conn_llist_dtor);
+  return CURLE_OK;
+}
+
+static void connectbundle_destroy(struct SessionHandle *data,
+                                  struct connectbundle *cb_ptr)
+{
+  (void)data;
+  if(cb_ptr->conn_list)
+    Curl_llist_destroy(cb_ptr->conn_list, NULL);
+  infof(data, "connectbundle_destroy(%p)\n", cb_ptr);
+  Curl_safefree(cb_ptr);
+}
+
+static CURLcode connectbundle_add(struct SessionHandle *data,
+                                  struct connectbundle *cb_ptr,
+                                  struct connectdata *conn)
+{
+  (void)data;
+  if(!Curl_llist_insert_next(cb_ptr->conn_list, cb_ptr->conn_list->tail, conn))
+    return CURLE_OUT_OF_MEMORY;
+
+  cb_ptr->num_connections++;
+  return CURLE_OK;
+}
+
+static int connectbundle_remove(struct SessionHandle *data,
+                                struct connectbundle *cb_ptr,
+                                struct connectdata *conn)
+{
+  struct curl_llist_element *curr;
+  (void)data;
+
+  curr = cb_ptr->conn_list->head;
+  while(curr) {
+    infof(data, "connectbundle_remove() %p == %p\n", curr->ptr, conn);
+    if(curr->ptr == conn) {
+      Curl_llist_remove(cb_ptr->conn_list, curr, NULL);
+      cb_ptr->num_connections--;
+      infof(data, "connectbundle_remove() %d left\n", cb_ptr->num_connections);
+      return 1; /* we removed a handle */
+    }
+    curr = curr->next;
+  }
+  return 0;
+}
+
+static struct connectdata *
+connectbundle_find_best(struct SessionHandle *data,
+                        struct connectbundle *cb_ptr)
+{
+  struct curl_llist_element *curr;
+  struct connectdata *conn;
+  struct connectdata *best_conn = NULL;
+  size_t pipe_len;
+  size_t best_pipe_len = 99;
+
+  (void)data;
+
+  curr = cb_ptr->conn_list->head;
+  while(curr) {
+    conn = curr->ptr;
+    pipe_len = conn->send_pipe->size + conn->recv_pipe->size;
+
+    if(pipe_len < best_pipe_len) {
+      best_conn = conn;
+      best_pipe_len = pipe_len;
+    }
+    curr = curr->next;
+  }
+  return best_conn;
+}
+
+/*------------------------------*/
+
 static void close_connections(struct SessionHandle *data)
 {
   /* Loop through all open connections and kill them one by one */
@@ -2623,6 +2717,16 @@ static void conn_free(struct connectdata *conn)
   if(!conn)
     return;
 
+  infof(conn->data, "bundle = %p\n", conn->bundle);
+  if(conn->bundle) {
+    struct connectbundle *bundle = conn->bundle;
+    if(connectbundle_remove(conn->data, conn->bundle, conn)) {
+      if(bundle->num_connections == 0) {
+        connectbundle_destroy(conn->data, bundle);
+      }
+    }
+  }
+
   /* possible left-overs from the async name resolvers */
   Curl_resolver_cancel(conn);
 
@@ -2821,6 +2925,7 @@ CURLcode Curl_addHandleToPipeline(struct SessionHandle *data,
 {
   if(!Curl_llist_insert_next(pipeline, pipeline->tail, data))
     return CURLE_OUT_OF_MEMORY;
+  infof(data, "%s: length: %d\n", __FUNCTION__, pipeline->size);
   return CURLE_OK;
 }
 
@@ -2946,6 +3051,8 @@ ConnectionExists(struct SessionHandle *data,
       /* NULL pointer means not filled-in entry */
       continue;
 
+    infof(check->data, "%s: conn: %p\n", __FUNCTION__, check);
+    infof(check->data, "%s: size: %d\n", __FUNCTION__, check->send_pipe->size);
     pipeLen = check->send_pipe->size + check->recv_pipe->size;
 
     if(check->connectindex == -1) {
@@ -2989,13 +3096,6 @@ ConnectionExists(struct SessionHandle *data,
         if(!IsPipeliningPossible(rh, check))
           continue;
       }
-
-#ifdef DEBUGBUILD
-      if(pipeLen > MAX_PIPELINE_LENGTH) {
-        infof(data, "BAD! Connection #%ld has too big pipeline!\n",
-              check->connectindex);
-      }
-#endif
     }
     else {
       if(pipeLen > 0) {
@@ -4840,6 +4940,9 @@ static CURLcode create_conn(struct SessionHandle *data,
   bool reuse;
   char *proxy = NULL;
   bool prot_missing = FALSE;
+  bool canPipeline;
+  size_t pipeLen;
+
 
   *async = FALSE;
 
@@ -5143,6 +5246,57 @@ static CURLcode create_conn(struct SessionHandle *data,
     reuse = ConnectionExists(data, conn, &conn_temp);
 
   if(reuse) {
+    canPipeline = IsPipeliningPossible(data, conn_temp);
+
+    infof(data, "reuse. canPipeline = %d \n", canPipeline);
+    if(canPipeline) {
+      infof(data, "*** Found pipeline!\n");
+      if(!conn_temp->bundle) {
+        result = connectbundle_create(data, &conn_temp->bundle);
+        infof(data, "No bundle, creating one %p", conn_temp->bundle);
+        if(result != CURLE_OK)
+          return result;
+
+        result = connectbundle_add(data, conn_temp->bundle, conn_temp);
+        if(result != CURLE_OK)
+          return result;
+      }
+
+      conn_temp = connectbundle_find_best(data, conn_temp->bundle);
+
+      pipeLen = conn_temp->send_pipe->size + conn_temp->recv_pipe->size;
+
+      infof(data, "Found best connection: %p with %d in the pipe\n",
+            conn_temp, pipeLen);
+
+      if((pipeLen >= MAX_PIPELINE_LENGTH ||
+          conn_temp->pend_pipe->size >= MAX_PIPELINE_LENGTH)) {
+        /* We want a new connection in the same bundle */
+        reuse = FALSE;
+
+        infof(data, "Creating new connection in the same bundle\n");
+        conn->bundle = conn_temp->bundle;
+        result = connectbundle_add(data, conn_temp->bundle, conn);
+        if(result != CURLE_OK)
+          return result;
+
+        infof(data, "Bundle now contains %d members\n",
+              conn_temp->bundle->num_connections);
+      }
+      else {
+        infof(data, "Reused. Pipe length: %d\n", pipeLen);
+        infof(data, "Reused. Pend length: %d\n", conn_temp->pend_pipe->size);
+      }
+    }
+  }
+
+
+  if(reuse) {
+    /* Handle connection bundling */
+    if(conn_temp->server_supports_pipelining) {
+      infof(data, "Pipeline is active\n");
+    }
+
     /*
      * We already have a connection for this, we got the former connection
      * in the conn_temp variable and thus we need to cleanup the one we
@@ -5167,6 +5321,19 @@ static CURLcode create_conn(struct SessionHandle *data,
      * cache of ours!
      */
     ConnectionStore(data, conn);
+
+    if(IsPipeliningPossible(data, conn)) {
+      if(!conn->bundle) {
+        infof(data, "No bundle, creating one\n");
+        result = connectbundle_create(data, &conn->bundle);
+        if(result != CURLE_OK)
+          return result;
+
+        result = connectbundle_add(data, conn->bundle, conn);
+        if(result != CURLE_OK)
+          return result;
+      }
+    }
   }
 
   /* Setup and init stuff before DO starts, in preparing for the transfer. */

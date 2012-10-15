@@ -1321,7 +1321,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
     case CURLM_STATE_WAITDO:
       /* Wait for our turn to DO when we're pipelining requests */
 #ifdef DEBUGBUILD
-      infof(data, "Conn %ld send pipe %zu inuse %d athead %d\n",
+      infof(data, "WAITDO: Conn %ld send pipe %zu inuse %d athead %d\n",
             easy->easy_conn->connectindex,
             easy->easy_conn->send_pipe->size,
             easy->easy_conn->writechannel_inuse?1:0,
@@ -1511,7 +1511,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       }
 #ifdef DEBUGBUILD
       else {
-        infof(data, "Conn %ld recv pipe %zu inuse %d athead %d\n",
+        infof(data, "WAITPERFORM: Conn %ld recv pipe %zu inuse %d athead %d\n",
               easy->easy_conn->connectindex,
               easy->easy_conn->recv_pipe->size,
               easy->easy_conn->readchannel_inuse?1:0,
@@ -2503,6 +2503,10 @@ static CURLcode addHandleToSendOrPendPipeline(struct SessionHandle *handle,
       pipeline = conn->pend_pipe;
   }
 
+  infof(conn->data, "%s: conn: %p\n", __FUNCTION__, conn);
+  infof(conn->data, "%s: send: %d\n", __FUNCTION__, conn->send_pipe->size);
+  infof(conn->data, "%s: recv: %d\n", __FUNCTION__, conn->recv_pipe->size);
+  infof(conn->data, "%s: pend: %d\n", __FUNCTION__, conn->pend_pipe->size);
   rc = Curl_addHandleToPipeline(handle, pipeline);
 
   if(pipeline == conn->send_pipe && sendhead != conn->send_pipe->head) {
