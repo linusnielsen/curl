@@ -79,6 +79,7 @@
 #include "http_proxy.h"
 #include "warnless.h"
 #include "non-ascii.h"
+#include "pipeline.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
@@ -3165,12 +3166,20 @@ CURLcode Curl_http_readwrite_headers(struct SessionHandle *data,
         }
         else if(conn->httpversion >= 11 &&
                 !conn->bits.close) {
+          struct connectbundle *cb_ptr;
+
           /* If HTTP version is >= 1.1 and connection is persistent
              server supports pipelining. */
           DEBUGF(infof(data,
                        "HTTP 1.1 or later with persistent connection, "
                        "pipelining supported\n"));
           conn->server_supports_pipelining = TRUE;
+
+          /* Inherit the flag from the bundle, if we are part of one */
+          cb_ptr = conn->bundle;
+          if(cb_ptr) {
+            cb_ptr->server_supports_pipelining = TRUE;
+          }
         }
 
         switch(k->httpcode) {

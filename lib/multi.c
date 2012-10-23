@@ -44,6 +44,7 @@
 #include "select.h"
 #include "warnless.h"
 #include "speedcheck.h"
+#include "pipeline.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
 #include <curl/mprintf.h>
@@ -187,13 +188,6 @@ static CURLMcode add_closure(struct Curl_multi *multi,
                              struct SessionHandle *data);
 static int update_timer(struct Curl_multi *multi);
 
-static CURLcode addHandleToSendOrPendPipeline(struct SessionHandle *handle,
-                                              struct connectdata *conn);
-static int checkPendPipeline(struct connectdata *conn);
-static void moveHandleFromSendToRecvPipeline(struct SessionHandle *handle,
-                                             struct connectdata *conn);
-static void moveHandleFromRecvToDonePipeline(struct SessionHandle *handle,
-                                             struct connectdata *conn);
 static bool isHandleAtHead(struct SessionHandle *handle,
                            struct curl_llist *pipeline);
 static CURLMcode add_next_timeout(struct timeval now,
@@ -1152,8 +1146,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
 
       if(CURLE_OK == easy->result) {
         /* Add this handle to the send or pend pipeline */
-        easy->result = addHandleToSendOrPendPipeline(data,
-                                                     easy->easy_conn);
+        easy->result = Curl_add_handle_to_pipeline(data, easy->easy_conn);
         if(CURLE_OK != easy->result)
           disconnect_conn = TRUE;
         else {
@@ -1492,9 +1485,9 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
 
     case CURLM_STATE_DO_DONE:
       /* Move ourselves from the send to recv pipeline */
-      moveHandleFromSendToRecvPipeline(data, easy->easy_conn);
+      Curl_move_handle_from_send_to_recv_pipe(data, easy->easy_conn);
       /* Check if we can move pending requests to send pipe */
-      checkPendPipeline(easy->easy_conn);
+      Curl_check_pend_pipeline(easy->easy_conn);
       multistate(easy, CURLM_STATE_WAITPERFORM);
       result = CURLM_CALL_MULTI_PERFORM;
       break;
@@ -1609,15 +1602,14 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         Curl_posttransfer(data);
 
         /* we're no longer receiving */
-        moveHandleFromRecvToDonePipeline(data,
-                                         easy->easy_conn);
+        Curl_move_handle_from_recv_to_done_pipe(data, easy->easy_conn);
 
         /* expire the new receiving pipeline head */
         if(easy->easy_conn->recv_pipe->head)
           Curl_expire(easy->easy_conn->recv_pipe->head->ptr, 1);
 
         /* Check if we can move pending requests to send pipe */
-        checkPendPipeline(easy->easy_conn);
+        Curl_check_pend_pipeline(easy->easy_conn);
 
         /* When we follow redirects or is set to retry the connection, we must
            to go back to the CONNECT state */
@@ -1675,7 +1667,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         Curl_removeHandleFromPipeline(data,
                                       easy->easy_conn->done_pipe);
         /* Check if we can move pending requests to send pipe */
-        checkPendPipeline(easy->easy_conn);
+        Curl_check_pend_pipeline(easy->easy_conn);
 
         if(easy->easy_conn->bits.stream_was_rewound) {
           /* This request read past its response boundary so we quickly let
@@ -1755,7 +1747,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
           Curl_removeHandleFromPipeline(data,
                                         easy->easy_conn->done_pipe);
           /* Check if we can move pending requests to send pipe */
-          checkPendPipeline(easy->easy_conn);
+          Curl_check_pend_pipeline(easy->easy_conn);
 
           if(disconnect_conn) {
             /* disconnect properly */
@@ -2484,135 +2476,12 @@ static int update_timer(struct Curl_multi *multi)
   return multi->timer_cb((CURLM*)multi, timeout_ms, multi->timer_userp);
 }
 
-static CURLcode addHandleToSendOrPendPipeline(struct SessionHandle *handle,
-                                              struct connectdata *conn)
+void Curl_multi_set_easy_connection(struct SessionHandle *handle,
+                                    struct connectdata *conn)
 {
-  size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
-  struct curl_llist_element *sendhead = conn->send_pipe->head;
-  struct curl_llist *pipeline;
-  CURLcode rc;
-
-  if(!Curl_isPipeliningEnabled(handle) ||
-     pipeLen == 0)
-    pipeline = conn->send_pipe;
-  else {
-    if(conn->server_supports_pipelining &&
-       pipeLen < MAX_PIPELINE_LENGTH)
-      pipeline = conn->send_pipe;
-    else
-      pipeline = conn->pend_pipe;
-  }
-
-  infof(conn->data, "%s: conn: %p\n", __FUNCTION__, conn);
-  infof(conn->data, "%s: send: %d\n", __FUNCTION__, conn->send_pipe->size);
-  infof(conn->data, "%s: recv: %d\n", __FUNCTION__, conn->recv_pipe->size);
-  infof(conn->data, "%s: pend: %d\n", __FUNCTION__, conn->pend_pipe->size);
-  rc = Curl_addHandleToPipeline(handle, pipeline);
-
-  if(pipeline == conn->send_pipe && sendhead != conn->send_pipe->head) {
-    /* this is a new one as head, expire it */
-    conn->writechannel_inuse = FALSE; /* not in use yet */
-#ifdef DEBUGBUILD
-    infof(conn->data, "%p is at send pipe head!\n",
-          conn->send_pipe->head->ptr);
-#endif
-    Curl_expire(conn->send_pipe->head->ptr, 1);
-  }
-
-  return rc;
+  handle->set.one_easy->easy_conn = conn;
 }
 
-static int checkPendPipeline(struct connectdata *conn)
-{
-  int result = 0;
-  struct curl_llist_element *sendhead = conn->send_pipe->head;
-
-  size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
-  if(conn->server_supports_pipelining || pipeLen == 0) {
-    struct curl_llist_element *curr = conn->pend_pipe->head;
-    const size_t maxPipeLen =
-      conn->server_supports_pipelining ? MAX_PIPELINE_LENGTH : 1;
-
-    while(pipeLen < maxPipeLen && curr) {
-      Curl_llist_move(conn->pend_pipe, curr,
-                      conn->send_pipe, conn->send_pipe->tail);
-      Curl_pgrsTime(curr->ptr, TIMER_PRETRANSFER);
-      ++result; /* count how many handles we moved */
-      curr = conn->pend_pipe->head;
-      ++pipeLen;
-    }
-  }
-
-  if(result) {
-    conn->now = Curl_tvnow();
-    /* something moved, check for a new send pipeline leader */
-    if(sendhead != conn->send_pipe->head) {
-      /* this is a new one as head, expire it */
-      conn->writechannel_inuse = FALSE; /* not in use yet */
-#ifdef DEBUGBUILD
-      infof(conn->data, "%p is at send pipe head!\n",
-            conn->send_pipe->head->ptr);
-#endif
-      Curl_expire(conn->send_pipe->head->ptr, 1);
-    }
-  }
-
-  return result;
-}
-
-/* Move this transfer from the sending list to the receiving list.
-
-   Pay special attention to the new sending list "leader" as it needs to get
-   checked to update what sockets it acts on.
-
-*/
-static void moveHandleFromSendToRecvPipeline(struct SessionHandle *handle,
-                                             struct connectdata *conn)
-{
-  struct curl_llist_element *curr;
-
-  curr = conn->send_pipe->head;
-  while(curr) {
-    if(curr->ptr == handle) {
-      Curl_llist_move(conn->send_pipe, curr,
-                      conn->recv_pipe, conn->recv_pipe->tail);
-
-      if(conn->send_pipe->head) {
-        /* Since there's a new easy handle at the start of the send pipeline,
-           set its timeout value to 1ms to make it trigger instantly */
-        conn->writechannel_inuse = FALSE; /* not used now */
-#ifdef DEBUGBUILD
-        infof(conn->data, "%p is at send pipe head B!\n",
-              conn->send_pipe->head->ptr);
-#endif
-        Curl_expire(conn->send_pipe->head->ptr, 1);
-      }
-
-      /* The receiver's list is not really interesting here since either this
-         handle is now first in the list and we'll deal with it soon, or
-         another handle is already first and thus is already taken care of */
-
-      break; /* we're done! */
-    }
-    curr = curr->next;
-  }
-}
-
-static void moveHandleFromRecvToDonePipeline(struct SessionHandle *handle,
-                                            struct connectdata *conn)
-{
-  struct curl_llist_element *curr;
-
-  curr = conn->recv_pipe->head;
-  while(curr) {
-    if(curr->ptr == handle) {
-      Curl_llist_move(conn->recv_pipe, curr,
-                      conn->done_pipe, conn->done_pipe->tail);
-      break;
-    }
-    curr = curr->next;
-  }
-}
 static bool isHandleAtHead(struct SessionHandle *handle,
                            struct curl_llist *pipeline)
 {

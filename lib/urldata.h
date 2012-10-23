@@ -1018,15 +1018,6 @@ struct connectdata {
 
 /* The end of connectdata. */
 
-/* connectbundle */
-
-struct connectbundle {
-   int num_connections; /* Number of connections in the bundle */
-   struct curl_llist *conn_list; /* The connectdata members of the bundle */
-};
-
-/* The end of connectbundle. */
-
 /*
  * Struct to keep statistical and informational data.
  */

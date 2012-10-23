@@ -50,4 +50,8 @@ void Curl_multi_handlePipeBreak(struct SessionHandle *data);
 void Curl_multi_dump(const struct Curl_multi *multi_handle);
 #endif
 
+/* Update the current connection of a One_Easy handle */
+void Curl_multi_set_easy_connection(struct SessionHandle *handle,
+                                    struct connectdata *conn);
+
 #endif /* __MULTIIF_H */
