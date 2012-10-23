@@ -934,8 +934,6 @@ struct connectdata {
                                    this pipeline */
   struct curl_llist *done_pipe; /* Handles that are finished, but
                                    still reference this connectdata */
-#define MAX_PIPELINE_LENGTH 5
-
   char* master_buffer; /* The master buffer allocated on-demand;
                           used for pipelining. */
   size_t read_pos; /* Current read position in the master buffer */

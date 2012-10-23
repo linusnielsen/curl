@@ -170,6 +170,12 @@ struct Curl_multi {
   long maxconnects; /* if >0, a fixed limit of the maximum number of entries
                        we're allowed to grow the connection cache to */
 
+  long max_host_connections; /* if >0, a fixed limit of the maximum number
+                                of connections per bundle */
+
+  long max_pipeline_length; /* if >0, maximum number of requests in a
+                               pipeline */
+
   /* list of easy handles kept around for doing nice connection closures */
   struct closure *closure;
 
@@ -416,6 +422,8 @@ CURLM *curl_multi_init(void)
      with less work (we didn't keep a tail pointer before). */
   multi->easy.next = &multi->easy;
   multi->easy.prev = &multi->easy;
+
+  multi->max_pipeline_length = 5;
 
   return (CURLM *) multi;
 
@@ -2352,6 +2360,12 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
   case CURLMOPT_MAXCONNECTS:
     multi->maxconnects = va_arg(param, long);
     break;
+  case CURLMOPT_MAX_HOST_CONNECTIONS:
+    multi->max_host_connections = va_arg(param, long);
+    break;
+  case CURLMOPT_MAX_PIPELINE_LENGTH:
+    multi->max_pipeline_length = va_arg(param, long);
+    break;
   default:
     res = CURLM_UNKNOWN_OPTION;
     break;
@@ -2778,6 +2792,16 @@ static CURLMcode add_closure(struct Curl_multi *multi,
   }
 
   return CURLM_OK;
+}
+
+long Curl_multi_max_host_connections(struct Curl_multi *multi)
+{
+  return multi->max_host_connections;
+}
+
+long Curl_multi_max_pipeline_length(struct Curl_multi *multi)
+{
+  return multi->max_pipeline_length;
 }
 
 #ifdef DEBUGBUILD

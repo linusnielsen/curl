@@ -168,7 +168,7 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
     pipeline = conn->send_pipe;
   else {
     if(cb_ptr->server_supports_pipelining &&
-       pipeLen < MAX_PIPELINE_LENGTH)
+       pipeLen < Curl_multi_max_pipeline_length(conn->data->multi))
       pipeline = conn->send_pipe;
     else
     {
@@ -270,7 +270,8 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
     struct connectbundle *cb_ptr;
     struct curl_llist_element *curr;
     const size_t maxPipeLen =
-      conn->server_supports_pipelining ? MAX_PIPELINE_LENGTH : 1;
+      conn->server_supports_pipelining ?
+      Curl_multi_max_pipeline_length(data->multi) : 1;
 
     cb_ptr = conn->bundle;
     curr = cb_ptr->pend_list->head;

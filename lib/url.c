@@ -5177,7 +5177,8 @@ static CURLcode create_conn(struct SessionHandle *data,
       infof(data, "Found best connection: %p with %d in the pipe\n",
             conn_temp, pipeLen);
 
-      if(conn_temp->bundle->num_connections < 5) {
+      if(conn_temp->bundle->num_connections <
+         Curl_multi_max_host_connections(data->multi)) {
         /* We want a new connection in the same bundle */
         reuse = FALSE;
 

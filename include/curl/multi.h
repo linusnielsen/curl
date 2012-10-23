@@ -338,6 +338,12 @@ typedef enum {
   /* maximum number of entries in the connection cache */
   CINIT(MAXCONNECTS, LONG, 6),
 
+  /* maximum number of (pipelining) connections to one host */
+  CINIT(MAX_HOST_CONNECTIONS, LONG, 7),
+
+  /* maximum number of requests in a pipeline */
+  CINIT(MAX_PIPELINE_LENGTH, LONG, 8),
+
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;
 
