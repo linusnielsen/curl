@@ -2958,8 +2958,6 @@ ConnectionExists(struct SessionHandle *data,
       /* NULL pointer means not filled-in entry */
       continue;
 
-    infof(check->data, "%s: conn: %p\n", __FUNCTION__, check);
-    infof(check->data, "%s: size: %d\n", __FUNCTION__, check->send_pipe->size);
     pipeLen = check->send_pipe->size + check->recv_pipe->size;
 
     if(check->connectindex == -1) {
@@ -5159,6 +5157,7 @@ static CURLcode create_conn(struct SessionHandle *data,
     if(canPipeline) {
       infof(data, "*** Found pipelineable connection\n");
 
+#if 0
       if(!conn_temp->bundle) {
         infof(data, "WTF No bundle, creating one\n");
         result = Curl_bundle_create(data, &conn_temp->bundle);
@@ -5169,7 +5168,7 @@ static CURLcode create_conn(struct SessionHandle *data,
         if(result != CURLE_OK)
           return result;
       }
-
+#endif
       conn_temp = Curl_bundle_find_best(data, conn_temp->bundle);
 
       pipeLen = conn_temp->send_pipe->size + conn_temp->recv_pipe->size;
@@ -5190,8 +5189,6 @@ static CURLcode create_conn(struct SessionHandle *data,
 
         infof(data, "Bundle now contains %d members\n",
               conn->bundle->num_connections);
-        conn_temp->server_supports_pipelining =
-          conn->bundle->server_supports_pipelining;
       }
       else {
         infof(data, "Reused. Pipe length: %d\n", pipeLen);
@@ -5203,7 +5200,7 @@ static CURLcode create_conn(struct SessionHandle *data,
 
   if(reuse) {
     /* Handle connection bundling */
-    if(conn_temp->server_supports_pipelining) {
+    if(conn_temp->bundle->server_supports_pipelining) {
       infof(data, "Pipeline is active\n");
     }
 

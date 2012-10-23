@@ -163,23 +163,21 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
   CURLcode rc;
   struct connectbundle *cb_ptr = conn->bundle;
 
-  if(!Curl_isPipeliningEnabled(handle) ||
-     pipeLen == 0)
+  if(!Curl_isPipeliningEnabled(handle) || pipeLen == 0)
     pipeline = conn->send_pipe;
   else {
     if(cb_ptr->server_supports_pipelining &&
        pipeLen < Curl_multi_max_pipeline_length(conn->data->multi))
       pipeline = conn->send_pipe;
     else
-    {
       pipeline = cb_ptr->pend_list;
-    }
   }
 
   infof(conn->data, "%s: conn: %p\n", __FUNCTION__, conn);
   infof(conn->data, "%s: send: %d\n", __FUNCTION__, conn->send_pipe->size);
   infof(conn->data, "%s: recv: %d\n", __FUNCTION__, conn->recv_pipe->size);
-  infof(conn->data, "%s: pend: %d\n", __FUNCTION__, cb_ptr->pend_list->size);
+  if(cb_ptr)
+    infof(conn->data, "%s: pend: %d\n", __FUNCTION__, cb_ptr->pend_list->size);
   rc = Curl_addHandleToPipeline(handle, pipeline);
 
   if(pipeline == conn->send_pipe && sendhead != conn->send_pipe->head) {
@@ -255,25 +253,21 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
 {
   int result = 0;
   struct SessionHandle *data = conn->data;
-
   struct curl_llist_element *sendhead = conn->send_pipe->head;
-
   size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
+  struct connectbundle *cb_ptr = conn->bundle;
+  bool is_pipelining = (cb_ptr && cb_ptr->server_supports_pipelining);
 
   infof(data, "Curl_check_pend_pipeline %p\n", conn);
-  infof(data, "Curl_check_pend_pipeline support: %d\n",
-        conn->server_supports_pipelining);
-  infof(data, "Curl_check_pend_pipeline pipeLen: %d\n",
-        pipeLen);
+  if(is_pipelining)
+    infof(data, "Curl_check_pend_pipeline support: %d\n", is_pipelining);
+  infof(data, "Curl_check_pend_pipeline pipeLen: %d\n", pipeLen);
   print_pipeline(conn);
-  if(conn->server_supports_pipelining || pipeLen == 0) {
-    struct connectbundle *cb_ptr;
-    struct curl_llist_element *curr;
-    const size_t maxPipeLen =
-      conn->server_supports_pipelining ?
-      Curl_multi_max_pipeline_length(data->multi) : 1;
 
-    cb_ptr = conn->bundle;
+  if(is_pipelining) {
+    struct curl_llist_element *curr;
+    const size_t maxPipeLen =Curl_multi_max_pipeline_length(data->multi);
+
     curr = cb_ptr->pend_list->head;
 
     while(pipeLen < maxPipeLen && curr) {
@@ -291,19 +285,19 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
       infof(conn->data, "Curl_check_pend_pipeline pendlen: %d\n",
             cb_ptr->pend_list->size);
     }
-  }
 
-  if(result) {
-    conn->now = Curl_tvnow();
-    /* something moved, check for a new send pipeline leader */
-    if(sendhead != conn->send_pipe->head) {
-      /* this is a new one as head, expire it */
-      conn->writechannel_inuse = FALSE; /* not in use yet */
+    if(result) {
+      conn->now = Curl_tvnow();
+      /* something moved, check for a new send pipeline leader */
+      if(sendhead != conn->send_pipe->head) {
+        /* this is a new one as head, expire it */
+        conn->writechannel_inuse = FALSE; /* not in use yet */
 #ifdef DEBUGBUILD
-      infof(conn->data, "%p is at send pipe head!\n",
-            conn->send_pipe->head->ptr);
+        infof(conn->data, "%p is at send pipe head!\n",
+              conn->send_pipe->head->ptr);
 #endif
-      Curl_expire(conn->send_pipe->head->ptr, 1);
+        Curl_expire(conn->send_pipe->head->ptr, 1);
+      }
     }
   }
 

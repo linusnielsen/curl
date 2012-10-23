@@ -3173,9 +3173,8 @@ CURLcode Curl_http_readwrite_headers(struct SessionHandle *data,
           DEBUGF(infof(data,
                        "HTTP 1.1 or later with persistent connection, "
                        "pipelining supported\n"));
-          conn->server_supports_pipelining = TRUE;
 
-          /* Inherit the flag from the bundle, if we are part of one */
+          /* Activate pipelining if needed */
           cb_ptr = conn->bundle;
           if(cb_ptr) {
             cb_ptr->server_supports_pipelining = TRUE;
