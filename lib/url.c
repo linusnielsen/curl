@@ -2624,7 +2624,6 @@ static void conn_free(struct connectdata *conn)
   if(!conn)
     return;
 
-  infof(conn->data, "bundle = %p\n", conn->bundle);
   if(conn->bundle) {
     struct connectbundle *bundle = conn->bundle;
     if(Curl_bundle_remove_conn(conn->data, conn->bundle, conn)) {
@@ -5199,11 +5198,6 @@ static CURLcode create_conn(struct SessionHandle *data,
 
 
   if(reuse) {
-    /* Handle connection bundling */
-    if(conn_temp->bundle->server_supports_pipelining) {
-      infof(data, "Pipeline is active\n");
-    }
-
     /*
      * We already have a connection for this, we got the former connection
      * in the conn_temp variable and thus we need to cleanup the one we
