@@ -95,18 +95,21 @@ you should instead use the \fICURLOPT_MAXCONNECTS\fP option.
 .IP CURLMOPT_MAX_HOST_CONNECTIONS
 Pass a long. The set number will be used as the maximum amount of
 simultaneously open connections to a single host. This is only effective
-when CUROMOPT_PIPELINING is set to 1. For each new connection to a host,
+when CURLMOPT_PIPELINING is set to 1. For each new connection to a host,
 libcurl will open a new connection up to the limit set by
-CURMLOPT_MAX_HOST_CONNECTIONS. When the limit is reached, libcurl will start
+CURLMOPT_MAX_HOST_CONNECTIONS. When the limit is reached, libcurl will start
 using pipelining, if the host is capable of it.
+The default value is 1.
 
 (Added in 7.xx.yy)
 .IP CURLMOPT_MAX_PIPELINE_LENGTH
 Pass a long. The set number will be used as the maximum amount of requests
 in a pipelined connection. When this limit is reached, libcurl will use another
-connection to the same host (see CURMLOPT_MAX_HOST_CONNECTIONS), or queue the requests until one of the pipelines to the host is ready to accept a request.
+connection to the same host (see CURLMOPT_MAX_HOST_CONNECTIONS), or queue the
+requests until one of the pipelines to the host is ready to accept a request.
 Thus, the total number of requests in-flight is CURLMOPT_MAX_HOST_CONNECTIONS *
 CURLMOPT_MAX_PIPELINE_LENGTH.
+The default value is 5.
 
 (Added in 7.xx.yy)
 .SH RETURNS
