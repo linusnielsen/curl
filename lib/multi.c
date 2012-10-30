@@ -423,6 +423,7 @@ CURLM *curl_multi_init(void)
   multi->easy.next = &multi->easy;
   multi->easy.prev = &multi->easy;
 
+  multi->max_host_connections = 1;
   multi->max_pipeline_length = 5;
 
   return (CURLM *) multi;
