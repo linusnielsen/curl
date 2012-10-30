@@ -415,16 +415,6 @@ CURLcode Curl_close(struct SessionHandle *data)
           }
         }
       }
-      pipeline = connptr->done_pipe;
-      if(pipeline) {
-        for(curr = pipeline->head; curr; curr=curr->next) {
-          if(data == (struct SessionHandle *) curr->ptr) {
-            fprintf(stderr,
-                    "problem we %p are still in done pipe for %p done %d\n",
-                    data, connptr, (int)connptr->bits.done);
-          }
-        }
-      }
     }
   }
 #endif
@@ -2662,11 +2652,9 @@ static void conn_free(struct connectdata *conn)
 
   Curl_llist_destroy(conn->send_pipe, NULL);
   Curl_llist_destroy(conn->recv_pipe, NULL);
-  Curl_llist_destroy(conn->done_pipe, NULL);
 
   conn->send_pipe = NULL;
   conn->recv_pipe = NULL;
-  conn->done_pipe = NULL;
 
   Curl_safefree(conn->localdev);
   Curl_free_ssl_config(&conn->ssl_config);
@@ -2764,7 +2752,6 @@ CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
   if(Curl_isPipeliningEnabled(data)) {
     signalPipeClose(conn->send_pipe, TRUE);
     signalPipeClose(conn->recv_pipe, TRUE);
-    signalPipeClose(conn->done_pipe, FALSE);
   }
 
   conn_free(conn);
@@ -2878,7 +2865,6 @@ void Curl_getoff_all_pipelines(struct SessionHandle *data,
     conn->readchannel_inuse = FALSE;
   if(Curl_removeHandleFromPipeline(data, conn->send_pipe) && send_head)
     conn->writechannel_inuse = FALSE;
-  Curl_removeHandleFromPipeline(data, conn->done_pipe);
 }
 
 static void signalPipeClose(struct curl_llist *pipeline, bool pipe_broke)
@@ -3661,8 +3647,7 @@ static struct connectdata *allocate_conn(struct SessionHandle *data)
   /* Initialize the pipeline lists */
   conn->send_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
   conn->recv_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
-  conn->done_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
-  if(!conn->send_pipe || !conn->recv_pipe || !conn->done_pipe)
+  if(!conn->send_pipe || !conn->recv_pipe)
     goto error;
 
 #if defined(HAVE_KRB4) || defined(HAVE_GSSAPI)
@@ -3688,11 +3673,9 @@ static struct connectdata *allocate_conn(struct SessionHandle *data)
 
   Curl_llist_destroy(conn->send_pipe, NULL);
   Curl_llist_destroy(conn->recv_pipe, NULL);
-  Curl_llist_destroy(conn->done_pipe, NULL);
 
   conn->send_pipe = NULL;
   conn->recv_pipe = NULL;
-  conn->done_pipe = NULL;
 
   Curl_safefree(conn->master_buffer);
   Curl_safefree(conn->localdev);
@@ -4786,11 +4769,9 @@ static void reuse_conn(struct connectdata *old_conn,
 
   Curl_llist_destroy(old_conn->send_pipe, NULL);
   Curl_llist_destroy(old_conn->recv_pipe, NULL);
-  Curl_llist_destroy(old_conn->done_pipe, NULL);
 
   old_conn->send_pipe = NULL;
   old_conn->recv_pipe = NULL;
-  old_conn->done_pipe = NULL;
 
   Curl_safefree(old_conn->master_buffer);
 }

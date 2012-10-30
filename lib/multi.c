@@ -1611,7 +1611,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         Curl_posttransfer(data);
 
         /* we're no longer receiving */
-        Curl_move_handle_from_recv_to_done_pipe(data, easy->easy_conn);
+        Curl_removeHandleFromPipeline(data, easy->easy_conn->recv_pipe);
 
         /* expire the new receiving pipeline head */
         if(easy->easy_conn->recv_pipe->head)
@@ -1669,12 +1669,9 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
     case CURLM_STATE_DONE:
 
       if(easy->easy_conn) {
-        /* Remove ourselves from the receive and done pipelines. Handle
-           should be on one of these lists, depending upon how we got here. */
+        /* Remove ourselves from the receive pipeline, if we are there. */
         Curl_removeHandleFromPipeline(data,
                                       easy->easy_conn->recv_pipe);
-        Curl_removeHandleFromPipeline(data,
-                                      easy->easy_conn->done_pipe);
         /* Check if we can move pending requests to send pipe */
         Curl_check_pend_pipeline(easy->easy_conn);
 
@@ -1753,8 +1750,6 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
                                         easy->easy_conn->send_pipe);
           Curl_removeHandleFromPipeline(data,
                                         easy->easy_conn->recv_pipe);
-          Curl_removeHandleFromPipeline(data,
-                                        easy->easy_conn->done_pipe);
           /* Check if we can move pending requests to send pipe */
           Curl_check_pend_pipeline(easy->easy_conn);
 

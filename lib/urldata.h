@@ -927,8 +927,6 @@ struct connectdata {
                                    send on this pipeline */
   struct curl_llist *recv_pipe; /* List of handles waiting to read
                                    their responses on this pipeline */
-  struct curl_llist *done_pipe; /* Handles that are finished, but
-                                   still reference this connectdata */
   char* master_buffer; /* The master buffer allocated on-demand;
                           used for pipelining. */
   size_t read_pos; /* Current read position in the master buffer */

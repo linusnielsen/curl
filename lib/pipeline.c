@@ -233,22 +233,6 @@ void Curl_move_handle_from_send_to_recv_pipe(struct SessionHandle *handle,
   }
 }
 
-void Curl_move_handle_from_recv_to_done_pipe(struct SessionHandle *handle,
-                                             struct connectdata *conn)
-{
-  struct curl_llist_element *curr;
-
-  curr = conn->recv_pipe->head;
-  while(curr) {
-    if(curr->ptr == handle) {
-      Curl_llist_move(conn->recv_pipe, curr,
-                      conn->done_pipe, conn->done_pipe->tail);
-      break;
-    }
-    curr = curr->next;
-  }
-}
-
 int Curl_check_pend_pipeline(struct connectdata *conn)
 {
   int result = 0;

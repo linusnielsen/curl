@@ -55,8 +55,6 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
                                      struct connectdata *conn);
 void Curl_move_handle_from_send_to_recv_pipe(struct SessionHandle *handle,
                                              struct connectdata *conn);
-void Curl_move_handle_from_recv_to_done_pipe(struct SessionHandle *handle,
-                                             struct connectdata *conn);
 int Curl_check_pend_pipeline(struct connectdata *conn);
 
 void print_pipeline(struct connectdata *conn);
