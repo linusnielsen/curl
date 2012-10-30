@@ -5156,18 +5156,6 @@ static CURLcode create_conn(struct SessionHandle *data,
     if(canPipeline) {
       infof(data, "*** Found pipelineable connection\n");
 
-#if 0
-      if(!conn_temp->bundle) {
-        infof(data, "WTF No bundle, creating one\n");
-        result = Curl_bundle_create(data, &conn_temp->bundle);
-        if(result != CURLE_OK)
-          return result;
-
-        result = Curl_bundle_add_conn(data, conn_temp->bundle, conn);
-        if(result != CURLE_OK)
-          return result;
-      }
-#endif
       conn_temp = Curl_bundle_find_best(data, conn_temp->bundle);
 
       pipeLen = conn_temp->send_pipe->size + conn_temp->recv_pipe->size;
