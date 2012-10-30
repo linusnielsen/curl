@@ -425,16 +425,6 @@ CURLcode Curl_close(struct SessionHandle *data)
           }
         }
       }
-      pipeline = connptr->pend_pipe;
-      if(pipeline) {
-        for(curr = pipeline->head; curr; curr=curr->next) {
-          if(data == (struct SessionHandle *) curr->ptr) {
-            fprintf(stderr,
-                    "problem we %p are still in pend pipe for %p done %d\n",
-                    data, connptr, (int)connptr->bits.done);
-          }
-        }
-      }
     }
   }
 #endif
@@ -2672,12 +2662,10 @@ static void conn_free(struct connectdata *conn)
 
   Curl_llist_destroy(conn->send_pipe, NULL);
   Curl_llist_destroy(conn->recv_pipe, NULL);
-  Curl_llist_destroy(conn->pend_pipe, NULL);
   Curl_llist_destroy(conn->done_pipe, NULL);
 
   conn->send_pipe = NULL;
   conn->recv_pipe = NULL;
-  conn->pend_pipe = NULL;
   conn->done_pipe = NULL;
 
   Curl_safefree(conn->localdev);
@@ -2776,7 +2764,6 @@ CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
   if(Curl_isPipeliningEnabled(data)) {
     signalPipeClose(conn->send_pipe, TRUE);
     signalPipeClose(conn->recv_pipe, TRUE);
-    signalPipeClose(conn->pend_pipe, TRUE);
     signalPipeClose(conn->done_pipe, FALSE);
   }
 
@@ -2891,7 +2878,6 @@ void Curl_getoff_all_pipelines(struct SessionHandle *data,
     conn->readchannel_inuse = FALSE;
   if(Curl_removeHandleFromPipeline(data, conn->send_pipe) && send_head)
     conn->writechannel_inuse = FALSE;
-  Curl_removeHandleFromPipeline(data, conn->pend_pipe);
   Curl_removeHandleFromPipeline(data, conn->done_pipe);
 }
 
@@ -3675,10 +3661,8 @@ static struct connectdata *allocate_conn(struct SessionHandle *data)
   /* Initialize the pipeline lists */
   conn->send_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
   conn->recv_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
-  conn->pend_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
   conn->done_pipe = Curl_llist_alloc((curl_llist_dtor) llist_dtor);
-  if(!conn->send_pipe || !conn->recv_pipe || !conn->pend_pipe ||
-     !conn->done_pipe)
+  if(!conn->send_pipe || !conn->recv_pipe || !conn->done_pipe)
     goto error;
 
 #if defined(HAVE_KRB4) || defined(HAVE_GSSAPI)
@@ -3704,12 +3688,10 @@ static struct connectdata *allocate_conn(struct SessionHandle *data)
 
   Curl_llist_destroy(conn->send_pipe, NULL);
   Curl_llist_destroy(conn->recv_pipe, NULL);
-  Curl_llist_destroy(conn->pend_pipe, NULL);
   Curl_llist_destroy(conn->done_pipe, NULL);
 
   conn->send_pipe = NULL;
   conn->recv_pipe = NULL;
-  conn->pend_pipe = NULL;
   conn->done_pipe = NULL;
 
   Curl_safefree(conn->master_buffer);
@@ -4804,12 +4786,10 @@ static void reuse_conn(struct connectdata *old_conn,
 
   Curl_llist_destroy(old_conn->send_pipe, NULL);
   Curl_llist_destroy(old_conn->recv_pipe, NULL);
-  Curl_llist_destroy(old_conn->pend_pipe, NULL);
   Curl_llist_destroy(old_conn->done_pipe, NULL);
 
   old_conn->send_pipe = NULL;
   old_conn->recv_pipe = NULL;
-  old_conn->pend_pipe = NULL;
   old_conn->done_pipe = NULL;
 
   Curl_safefree(old_conn->master_buffer);
@@ -5179,7 +5159,6 @@ static CURLcode create_conn(struct SessionHandle *data,
       }
       else {
         infof(data, "Reused. Pipe length: %d\n", pipeLen);
-        infof(data, "Reused. Pend length: %d\n", conn_temp->pend_pipe->size);
       }
     }
   }
