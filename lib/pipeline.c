@@ -116,6 +116,27 @@ int Curl_bundle_remove_conn(struct SessionHandle *data,
   return 0;
 }
 
+bool Curl_pipeline_penalized(struct connectdata *conn)
+{
+  struct SessionHandle *data = conn->data;
+  bool penalized;
+
+  if(data) {
+    curl_off_t penalty_size =
+      Curl_multi_content_length_penalty_size(data->multi);
+
+    if(penalty_size > 0 && data->req.size > penalty_size)
+      penalized = TRUE;
+    else
+      penalized = FALSE;
+
+    infof(data, "Conn: %x Receive pipe weight: %d, penalized: %d\n",
+          conn, data->req.size, penalized);
+    return penalized;
+  }
+  return FALSE;
+}
+
 /* Find the best connection in a bundle to use for the next request */
 struct connectdata *
 Curl_bundle_find_best(struct SessionHandle *data,
@@ -134,11 +155,18 @@ Curl_bundle_find_best(struct SessionHandle *data,
     conn = curr->ptr;
     pipe_len = conn->send_pipe->size + conn->recv_pipe->size;
 
-    if(pipe_len < best_pipe_len) {
+    if(!Curl_pipeline_penalized(conn) && pipe_len < best_pipe_len) {
       best_conn = conn;
       best_pipe_len = pipe_len;
     }
     curr = curr->next;
+  }
+
+  /* If we haven't found a connection, i.e all pipelines are penalized
+     or full, just pick one. The request will then be queued in
+     Curl_add_handle_to_pipeline(). */
+  if(!best_conn) {
+    best_conn = cb_ptr->conn_list->head->ptr;
   }
   return best_conn;
 }
@@ -167,7 +195,8 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
     pipeline = conn->send_pipe;
   else {
     if(cb_ptr->server_supports_pipelining &&
-       pipeLen < Curl_multi_max_pipeline_length(conn->data->multi))
+       pipeLen < Curl_multi_max_pipeline_length(conn->data->multi) &&
+       !Curl_pipeline_penalized(conn))
       pipeline = conn->send_pipe;
     else
       pipeline = cb_ptr->pend_list;

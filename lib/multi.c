@@ -176,6 +176,15 @@ struct Curl_multi {
   long max_pipeline_length; /* if >0, maximum number of requests in a
                                pipeline */
 
+  curl_off_t content_length_penalty_size; /* a connection with a
+                                             content-length bigger than
+                                             this is not considered
+                                             for pipelining */
+
+  curl_off_t chunk_length_penalty_size; /* a connection with a chunk length
+                                           bigger than this is not
+                                           considered for pipelining */
+
   /* list of easy handles kept around for doing nice connection closures */
   struct closure *closure;
 
@@ -2362,6 +2371,12 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
   case CURLMOPT_MAX_PIPELINE_LENGTH:
     multi->max_pipeline_length = va_arg(param, long);
     break;
+  case CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE:
+    multi->content_length_penalty_size = va_arg(param, curl_off_t);
+    break;
+  case CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE:
+    multi->chunk_length_penalty_size = va_arg(param, curl_off_t);
+    break;
   default:
     res = CURLM_UNKNOWN_OPTION;
     break;
@@ -2798,6 +2813,16 @@ long Curl_multi_max_host_connections(struct Curl_multi *multi)
 long Curl_multi_max_pipeline_length(struct Curl_multi *multi)
 {
   return multi->max_pipeline_length;
+}
+
+curl_off_t Curl_multi_content_length_penalty_size(struct Curl_multi *multi)
+{
+  return multi->content_length_penalty_size;
+}
+
+curl_off_t Curl_multi_chunk_length_penalty_size(struct Curl_multi *multi)
+{
+  return multi->chunk_length_penalty_size;
 }
 
 #ifdef DEBUGBUILD

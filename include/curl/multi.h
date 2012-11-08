@@ -344,6 +344,14 @@ typedef enum {
   /* maximum number of requests in a pipeline */
   CINIT(MAX_PIPELINE_LENGTH, LONG, 8),
 
+  /* a connection with a content-length longer than this
+     will not be considered for pipelining */
+  CINIT(CONTENT_LENGTH_PENALTY_SIZE, LONG, 9),
+
+  /* a connection with a chunk length longer than this
+     will not be considered for pipelining */
+  CINIT(CHUNK_LENGTH_PENALTY_SIZE, LONG, 10),
+
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;
 

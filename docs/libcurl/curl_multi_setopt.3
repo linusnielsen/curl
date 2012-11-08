@@ -112,6 +112,23 @@ CURLMOPT_MAX_PIPELINE_LENGTH.
 The default value is 5.
 
 (Added in 7.xx.yy)
+.IP CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE
+Pass a curl_off_t. If a pipelined connection is currently processing a request
+with a Content-Length larger than CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE, that
+connection will not be considered for additional requests, even if it is
+shorter than CURLMOPT_MAX_PIPELINE_LENGTH.
+The default value is 0, which means that the penalization is inactive.
+
+(Added in 7.xx.yy)
+.IP CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE
+Pass a curl_off_t. If a pipelined connection is currently processing a
+chunked (Transfer-encoding: chunked) request with a current chunk length
+larger than CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE, that connection will not be
+considered for additional requests, even if it is shorter than
+CURLMOPT_MAX_PIPELINE_LENGTH.
+The default value is 0, which means that the penalization is inactive.
+
+(Added in 7.xx.yy)
 .SH RETURNS
 The standard CURLMcode for multi interface error codes. Note that it returns a
 CURLM_UNKNOWN_OPTION if you try setting an option that this version of libcurl
