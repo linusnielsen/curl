@@ -57,8 +57,6 @@ void Curl_move_handle_from_send_to_recv_pipe(struct SessionHandle *handle,
                                              struct connectdata *conn);
 int Curl_check_pend_pipeline(struct connectdata *conn);
 
-bool Curl_pipeline_penalized(struct connectdata *conn);
-
 void print_pipeline(struct connectdata *conn);
 
 #endif /* __PIPELINE_H */

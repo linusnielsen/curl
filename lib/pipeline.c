@@ -116,7 +116,7 @@ int Curl_bundle_remove_conn(struct SessionHandle *data,
   return 0;
 }
 
-bool Curl_pipeline_penalized(struct connectdata *conn)
+static bool pipeline_penalized(struct connectdata *conn)
 {
   struct SessionHandle *data = conn->data;
   bool penalized;
@@ -155,7 +155,7 @@ Curl_bundle_find_best(struct SessionHandle *data,
     conn = curr->ptr;
     pipe_len = conn->send_pipe->size + conn->recv_pipe->size;
 
-    if(!Curl_pipeline_penalized(conn) && pipe_len < best_pipe_len) {
+    if(!pipeline_penalized(conn) && pipe_len < best_pipe_len) {
       best_conn = conn;
       best_pipe_len = pipe_len;
     }
@@ -196,7 +196,7 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
   else {
     if(cb_ptr->server_supports_pipelining &&
        pipeLen < Curl_multi_max_pipeline_length(conn->data->multi) &&
-       !Curl_pipeline_penalized(conn))
+       !pipeline_penalized(conn))
       pipeline = conn->send_pipe;
     else
       pipeline = cb_ptr->pend_list;
