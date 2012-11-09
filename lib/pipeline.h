@@ -63,6 +63,12 @@ bool Curl_pipeline_site_blacklisted(struct SessionHandle *handle,
 CURLMcode Curl_pipeline_set_site_blacklist(char **sites,
                                            struct curl_llist **list_ptr);
 
+bool Curl_pipeline_server_blacklisted(struct SessionHandle *handle,
+                                      char *server_name);
+
+CURLMcode Curl_pipeline_set_server_blacklist(char **servers,
+                                             struct curl_llist **list_ptr);
+
 void print_pipeline(struct connectdata *conn);
 
 #endif /* __PIPELINE_H */

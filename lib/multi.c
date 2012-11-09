@@ -188,6 +188,9 @@ struct Curl_multi {
   struct curl_llist *pipelining_site_bl; /* List of sites that are blacklisted
                                             from pipelining */
 
+  struct curl_llist *pipelining_server_bl; /* List of server types that are
+                                              blacklisted from pipelining */
+
   /* list of easy handles kept around for doing nice connection closures */
   struct closure *closure;
 
@@ -1951,8 +1954,9 @@ CURLMcode curl_multi_cleanup(CURLM *multi_handle)
       easy = nexteasy;
     }
 
-    /* Free the blacklist by setting it with NULL */
+    /* Free the blacklists by setting them with NULL */
     Curl_pipeline_set_site_blacklist(NULL, &multi->pipelining_site_bl);
+    Curl_pipeline_set_server_blacklist(NULL, &multi->pipelining_server_bl);
 
     free(multi);
 
@@ -2386,6 +2390,10 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
   case CURLMOPT_PIPELINING_SITE_BL:
     res = Curl_pipeline_set_site_blacklist(va_arg(param, char **),
                                            &multi->pipelining_site_bl);
+    break;
+  case CURLMOPT_PIPELINING_SERVER_BL:
+    res = Curl_pipeline_set_server_blacklist(va_arg(param, char **),
+                                             &multi->pipelining_server_bl);
     break;
 
   default:
@@ -2839,6 +2847,11 @@ curl_off_t Curl_multi_chunk_length_penalty_size(struct Curl_multi *multi)
 struct curl_llist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi)
 {
   return multi->pipelining_site_bl;
+}
+
+struct curl_llist *Curl_multi_pipelining_server_bl(struct Curl_multi *multi)
+{
+  return multi->pipelining_server_bl;
 }
 
 #ifdef DEBUGBUILD

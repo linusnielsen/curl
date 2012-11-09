@@ -3256,6 +3256,16 @@ CURLcode Curl_http_readwrite_headers(struct SessionHandle *data,
         data->info.contenttype = contenttype;
       }
     }
+    else if(checkprefix("Server:", k->p)) {
+      char *server_name = copy_header_value(k->p);
+
+      /* Turn off pipelining if the server version is blacklisted */
+      if(conn->bundle && conn->bundle->server_supports_pipelining) {
+        if(Curl_pipeline_server_blacklisted(data, server_name))
+          conn->bundle->server_supports_pipelining = FALSE;
+      }
+      Curl_safefree(server_name);
+    }
     else if((conn->httpversion == 10) &&
             conn->bits.httpproxy &&
             Curl_compareheader(k->p,

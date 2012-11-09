@@ -131,9 +131,12 @@ The default value is 0, which means that the penalization is inactive.
 (Added in 7.xx.yy)
 .IP CURLMOPT_PIPELINING_SITE_BL
 Pass an array of char *, ending with NULL. This is a list of sites that are
-blacklisted from pipelining, i.e sites that are know to not support HTTP
+blacklisted from pipelining, i.e sites that are known to not support HTTP
 pipelining. The array is copied by libcurl.
+
 The default value is NULL, which means that there is no blacklist.
+
+Pass a NULL pointer to clear the blacklist.
 
 Example:
 
@@ -146,6 +149,30 @@ Example:
   };
 
   curl_multi_setopt(m, CURLMOPT_PIPELINE_SITE_BL, site_blacklist);
+.fi
+
+(Added in 7.xx.yy)
+.IP CURLMOPT_PIPELINING_SERVER_BL
+Pass an array of char *, ending with NULL. This is a list of server types
+(in the Server: HTTP header) that are blacklisted from pipelining, i.e server
+types that are known to not support HTTP pipelining. The array is copied by
+libcurl.
+
+The default value is NULL, which means that there is no blacklist.
+
+Pass a NULL pointer to clear the blacklist.
+
+Example:
+
+.nf
+  server_blacklist[] =
+  {
+    "Microsoft-IIS/6.0",
+    "nginx/0.8.54",
+    NULL
+  };
+
+  curl_multi_setopt(m, CURLMOPT_PIPELINE_SERVER_BL, server_blacklist);
 .fi
 
 (Added in 7.xx.yy)

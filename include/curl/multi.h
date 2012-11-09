@@ -356,6 +356,10 @@ typedef enum {
      pipelining */
   CINIT(PIPELINING_SITE_BL, OBJECTPOINT, 11),
 
+  /* a list of server types that are blacklisted from
+     pipelining */
+  CINIT(PIPELINING_SERVER_BL, OBJECTPOINT, 12),
+
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;
 

@@ -69,4 +69,7 @@ curl_off_t Curl_multi_chunk_length_penalty_size(struct Curl_multi *multi);
 /* Return the value of the CURLMOPT_PIPELINING_SITE_BL option */
 struct curl_llist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi);
 
+/* Return the value of the CURLMOPT_PIPELINING_SERVER_BL option */
+struct curl_llist *Curl_multi_pipelining_server_bl(struct Curl_multi *multi);
+
 #endif /* __MULTIIF_H */

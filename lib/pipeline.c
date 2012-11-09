@@ -48,13 +48,21 @@ static void conn_llist_dtor(void *user, void *element)
   data->bundle = NULL;
 }
 
-static void blacklist_llist_dtor(void *user, void *element)
+static void site_blacklist_llist_dtor(void *user, void *element)
 {
   struct site_blacklist_entry *entry = element;
   (void)user;
 
   Curl_safefree(entry->hostname);
   Curl_safefree(entry);
+}
+
+static void server_blacklist_llist_dtor(void *user, void *element)
+{
+  char *server_name = element;
+  (void)user;
+
+  Curl_safefree(server_name);
 }
 
 static void pend_llist_dtor(void *user, void *element)
@@ -371,7 +379,7 @@ CURLMcode Curl_pipeline_set_site_blacklist(char **sites,
   struct curl_llist *new_list = NULL;
 
   if(sites) {
-    new_list = Curl_llist_alloc((curl_llist_dtor) blacklist_llist_dtor);
+    new_list = Curl_llist_alloc((curl_llist_dtor) site_blacklist_llist_dtor);
     if(!new_list)
       return CURLM_OUT_OF_MEMORY;
 
@@ -417,6 +425,72 @@ CURLMcode Curl_pipeline_set_site_blacklist(char **sites,
 
   return CURLM_OK;
 }
+
+bool Curl_pipeline_server_blacklisted(struct SessionHandle *handle,
+                                      char *server_name)
+{
+  struct curl_llist *blacklist =
+    Curl_multi_pipelining_server_bl(handle->multi);
+  struct curl_llist_element *curr;
+  size_t servername_len;
+
+  if(blacklist) {
+    servername_len = strlen(server_name);
+
+    curr = blacklist->head;
+    while(curr) {
+      char *bl_server_name;
+
+      bl_server_name = curr->ptr;
+      if(Curl_raw_nequal(bl_server_name, server_name, servername_len)) {
+        infof(handle, "Server %s is blacklisted\n", server_name);
+        return TRUE;
+      }
+      curr = curr->next;
+    }
+  }
+
+  infof(handle, "Server %s is not blacklisted\n", server_name);
+  return FALSE;
+}
+
+CURLMcode Curl_pipeline_set_server_blacklist(char **servers,
+                                             struct curl_llist **list_ptr)
+{
+  struct curl_llist *old_list = *list_ptr;
+  struct curl_llist *new_list = NULL;
+
+  if(servers) {
+    new_list = Curl_llist_alloc((curl_llist_dtor) server_blacklist_llist_dtor);
+    if(!new_list)
+      return CURLM_OUT_OF_MEMORY;
+
+    /* Parse the URLs and populate the list */
+    while(*servers) {
+      char *server_name;
+
+      server_name = strdup(*servers);
+      if(!server_name)
+        return CURLM_OUT_OF_MEMORY;
+
+      if(!Curl_llist_insert_next(new_list, new_list->tail, server_name))
+        return CURLM_OUT_OF_MEMORY;
+
+      servers++;
+    }
+  }
+
+  /* Free the old list */
+  if(old_list) {
+    Curl_llist_destroy(old_list, NULL);
+  }
+
+  /* This might be NULL if sites == NULL, i.e the blacklist is cleared */
+  *list_ptr = new_list;
+
+  return CURLM_OK;
+}
+
 
 void print_pipeline(struct connectdata *conn)
 {
