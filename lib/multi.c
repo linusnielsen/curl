@@ -185,6 +185,10 @@ struct Curl_multi {
                                            bigger than this is not
                                            considered for pipelining */
 
+  struct curl_slist *pipelining_site_bl; /* List of site names(+port)
+                                            that are blacklisted from
+                                            pipelining */
+
   /* list of easy handles kept around for doing nice connection closures */
   struct closure *closure;
 
@@ -2377,6 +2381,10 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
   case CURLMOPT_CHUNK_LENGTH_PENALTY_SIZE:
     multi->chunk_length_penalty_size = va_arg(param, curl_off_t);
     break;
+  case CURLMOPT_PIPELINING_SITE_BL:
+    multi->pipelining_site_bl = va_arg(param, struct curl_slist *);
+    break;
+
   default:
     res = CURLM_UNKNOWN_OPTION;
     break;
@@ -2823,6 +2831,11 @@ curl_off_t Curl_multi_content_length_penalty_size(struct Curl_multi *multi)
 curl_off_t Curl_multi_chunk_length_penalty_size(struct Curl_multi *multi)
 {
   return multi->chunk_length_penalty_size;
+}
+
+struct curl_slist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi)
+{
+  return multi->pipelining_site_bl;
 }
 
 #ifdef DEBUGBUILD

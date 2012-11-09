@@ -26,6 +26,8 @@ struct connectbundle {
   bool server_supports_pipelining; /* TRUE if server supports pipelining,
                                       set after first response */
   int num_connections;          /* Number of connections in the bundle */
+  bool site_blacklisted;        /* True if the site is in the blacklist
+                                   set in the multi handle */
   struct curl_llist *conn_list; /* The connectdata members of the bundle */
   struct curl_llist *pend_list; /* A queue of pending handles */
 };
@@ -56,6 +58,9 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
 void Curl_move_handle_from_send_to_recv_pipe(struct SessionHandle *handle,
                                              struct connectdata *conn);
 int Curl_check_pend_pipeline(struct connectdata *conn);
+
+bool Curl_pipeline_site_blacklisted(const struct SessionHandle *handle,
+                                    const struct connectdata *conn);
 
 void print_pipeline(struct connectdata *conn);
 

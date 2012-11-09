@@ -346,11 +346,15 @@ typedef enum {
 
   /* a connection with a content-length longer than this
      will not be considered for pipelining */
-  CINIT(CONTENT_LENGTH_PENALTY_SIZE, LONG, 9),
+  CINIT(CONTENT_LENGTH_PENALTY_SIZE, OFF_T, 9),
 
   /* a connection with a chunk length longer than this
      will not be considered for pipelining */
-  CINIT(CHUNK_LENGTH_PENALTY_SIZE, LONG, 10),
+  CINIT(CHUNK_LENGTH_PENALTY_SIZE, OFF_T, 10),
+
+  /* a list of site names(+port) that are blacklisted from
+     pipelining */
+  CINIT(PIPELINING_SITE_BL, OBJECTPOINT, 11),
 
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;

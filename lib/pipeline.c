@@ -58,6 +58,7 @@ CURLcode Curl_bundle_create(struct SessionHandle *data,
 
   (*cb_ptr)->num_connections = 0;
   (*cb_ptr)->server_supports_pipelining = FALSE;
+  (*cb_ptr)->site_blacklisted = FALSE;
 
   (*cb_ptr)->conn_list = Curl_llist_alloc((curl_llist_dtor) conn_llist_dtor);
   if(!(*cb_ptr)->conn_list)
@@ -267,37 +268,39 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
   int result = 0;
   struct SessionHandle *data = conn->data;
   struct curl_llist_element *sendhead = conn->send_pipe->head;
-  size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
+  size_t pipe_len = conn->send_pipe->size + conn->recv_pipe->size;
   struct connectbundle *cb_ptr = conn->bundle;
   bool is_pipelining = (cb_ptr && cb_ptr->server_supports_pipelining);
+  struct curl_llist_element *curr;
+  size_t max_pipe_len;
 
   infof(data, "Curl_check_pend_pipeline %p\n", conn);
   if(is_pipelining)
     infof(data, "Curl_check_pend_pipeline support: %d\n", is_pipelining);
-  infof(data, "Curl_check_pend_pipeline pipeLen: %d\n", pipeLen);
+  infof(data, "Curl_check_pend_pipeline pipe_len: %d\n", pipe_len);
   print_pipeline(conn);
 
-  if(is_pipelining) {
-    struct curl_llist_element *curr;
-    const size_t maxPipeLen =Curl_multi_max_pipeline_length(data->multi);
+  if(is_pipelining)
+    max_pipe_len = Curl_multi_max_pipeline_length(data->multi);
+  else
+    max_pipe_len = 1;
 
+  curr = cb_ptr->pend_list->head;
+
+  while(pipe_len < max_pipe_len && curr) {
+    struct SessionHandle *handle;
+
+    Curl_llist_move(cb_ptr->pend_list, curr,
+                    conn->send_pipe, conn->send_pipe->tail);
+    Curl_pgrsTime(curr->ptr, TIMER_PRETRANSFER);
+    handle = curr->ptr;
+    Curl_multi_set_easy_connection(handle, conn);
+    ++result; /* count how many handles we moved */
     curr = cb_ptr->pend_list->head;
-
-    while(pipeLen < maxPipeLen && curr) {
-      struct SessionHandle *handle;
-
-      Curl_llist_move(cb_ptr->pend_list, curr,
-                      conn->send_pipe, conn->send_pipe->tail);
-      Curl_pgrsTime(curr->ptr, TIMER_PRETRANSFER);
-      handle = curr->ptr;
-      Curl_multi_set_easy_connection(handle, conn);
-      ++result; /* count how many handles we moved */
-      curr = cb_ptr->pend_list->head;
-      ++pipeLen;
-      infof(conn->data, "Curl_check_pend_pipeline len: %d\n", pipeLen);
-      infof(conn->data, "Curl_check_pend_pipeline pendlen: %d\n",
-            cb_ptr->pend_list->size);
-    }
+    ++pipe_len;
+    infof(conn->data, "Curl_check_pend_pipeline len: %d\n", pipe_len);
+    infof(conn->data, "Curl_check_pend_pipeline pendlen: %d\n",
+          cb_ptr->pend_list->size);
 
     if(result) {
       conn->now = Curl_tvnow();
@@ -315,6 +318,24 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
   }
 
   return result;
+}
+
+bool Curl_pipeline_site_blacklisted(const struct SessionHandle *handle,
+                                    const struct connectdata *conn)
+{
+  struct curl_slist *blacklist = Curl_multi_pipelining_site_bl(handle->multi);
+  struct curl_slist *site;
+  int hostnamelen = strlen(conn->host.name);
+
+  for(site = blacklist;site;site->next) {
+    infof(handle, "Comparing host %s and bl %s\n",
+          conn->host.name, site->data);
+    if(Curl_raw_nequal(site->data, conn->host.name, hostnamelen)) {
+      infof(handle, "%s is blacklisted\n", conn->host.name);
+      return TRUE;
+    }
+  }
+  return FALSE;
 }
 
 void print_pipeline(struct connectdata *conn)
