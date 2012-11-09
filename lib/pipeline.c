@@ -204,11 +204,11 @@ CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
       pipeline = cb_ptr->pend_list;
   }
 
-  infof(conn->data, "%s: conn: %p\n", __FUNCTION__, conn);
-  infof(conn->data, "%s: send: %d\n", __FUNCTION__, conn->send_pipe->size);
-  infof(conn->data, "%s: recv: %d\n", __FUNCTION__, conn->recv_pipe->size);
+  infof(conn->data, "Adding handle: conn: %p\n", conn);
+  infof(conn->data, "Adding handle: send: %d\n", conn->send_pipe->size);
+  infof(conn->data, "Adding handle: recv: %d\n", conn->recv_pipe->size);
   if(cb_ptr)
-    infof(conn->data, "%s: pend: %d\n", __FUNCTION__, cb_ptr->pend_list->size);
+    infof(conn->data, "Adding handle: pend: %d\n", cb_ptr->pend_list->size);
   rc = Curl_addHandleToPipeline(handle, pipeline);
 
   if(pipeline == conn->send_pipe && sendhead != conn->send_pipe->head) {

@@ -2802,7 +2802,7 @@ CURLcode Curl_addHandleToPipeline(struct SessionHandle *data,
 {
   if(!Curl_llist_insert_next(pipeline, pipeline->tail, data))
     return CURLE_OUT_OF_MEMORY;
-  infof(data, "%s: length: %d\n", __FUNCTION__, pipeline->size);
+  infof(data, "Curl_addHandleToPipeline: length: %d\n", pipeline->size);
   return CURLE_OK;
 }
 
