@@ -346,18 +346,16 @@ bool Curl_pipeline_site_blacklisted(struct SessionHandle *handle,
                                     struct connectdata *conn)
 {
   struct curl_llist *blacklist = Curl_multi_pipelining_site_bl(handle->multi);
-  struct curl_llist_element *curr;
-  size_t hostnamelen;
 
   if(blacklist) {
-    hostnamelen = strlen(conn->host.name);
+    struct curl_llist_element *curr;
 
     curr = blacklist->head;
     while(curr) {
       struct site_blacklist_entry *site;
 
       site = curr->ptr;
-      if(Curl_raw_nequal(site->hostname, conn->host.name, hostnamelen) &&
+      if(Curl_raw_equal(site->hostname, conn->host.name) &&
          site->port == conn->remote_port) {
         infof(handle, "Site %s:%d is blacklisted\n",
               conn->host.name, conn->remote_port);
@@ -431,18 +429,16 @@ bool Curl_pipeline_server_blacklisted(struct SessionHandle *handle,
 {
   struct curl_llist *blacklist =
     Curl_multi_pipelining_server_bl(handle->multi);
-  struct curl_llist_element *curr;
-  size_t servername_len;
 
   if(blacklist) {
-    servername_len = strlen(server_name);
+    struct curl_llist_element *curr;
 
     curr = blacklist->head;
     while(curr) {
       char *bl_server_name;
 
       bl_server_name = curr->ptr;
-      if(Curl_raw_nequal(bl_server_name, server_name, servername_len)) {
+      if(Curl_raw_equal(bl_server_name, server_name)) {
         infof(handle, "Server %s is blacklisted\n", server_name);
         return TRUE;
       }
