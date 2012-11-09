@@ -2813,12 +2813,12 @@ static CURLMcode add_closure(struct Curl_multi *multi,
   return CURLM_OK;
 }
 
-long Curl_multi_max_host_connections(struct Curl_multi *multi)
+size_t Curl_multi_max_host_connections(struct Curl_multi *multi)
 {
   return multi->max_host_connections;
 }
 
-long Curl_multi_max_pipeline_length(struct Curl_multi *multi)
+size_t Curl_multi_max_pipeline_length(struct Curl_multi *multi)
 {
   return multi->max_pipeline_length;
 }

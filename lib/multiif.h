@@ -7,7 +7,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2010, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) 1998 - 2012, Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -55,10 +55,10 @@ void Curl_multi_set_easy_connection(struct SessionHandle *handle,
                                     struct connectdata *conn);
 
 /* Return the value of the CURLMOPT_MAX_HOST_CONNECTIONS option */
-long Curl_multi_max_host_connections(struct Curl_multi *multi);
+size_t Curl_multi_max_host_connections(struct Curl_multi *multi);
 
 /* Return the value of the CURLMOPT_MAX_PIPELINE_LENGTH option */
-long Curl_multi_max_pipeline_length(struct Curl_multi *multi);
+size_t Curl_multi_max_pipeline_length(struct Curl_multi *multi);
 
 /* Return the value of the CURLMOPT_CONTENT_LENGTH_PENALTY_SIZE option */
 curl_off_t Curl_multi_content_length_penalty_size(struct Curl_multi *multi);

@@ -30,6 +30,7 @@
 #include "multiif.h"
 #include "pipeline.h"
 #include "sendf.h"
+#include "rawstr.h"
 
 /* The last #include file should be: */
 #include "memdebug.h"
@@ -320,12 +321,12 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
   return result;
 }
 
-bool Curl_pipeline_site_blacklisted(const struct SessionHandle *handle,
-                                    const struct connectdata *conn)
+bool Curl_pipeline_site_blacklisted(struct SessionHandle *handle,
+                                    struct connectdata *conn)
 {
   struct curl_slist *blacklist = Curl_multi_pipelining_site_bl(handle->multi);
   struct curl_slist *site;
-  int hostnamelen = strlen(conn->host.name);
+  size_t hostnamelen = strlen(conn->host.name);
 
   for(site = blacklist;site;site = site->next) {
     infof(handle, "Comparing host %s and bl %s\n",
