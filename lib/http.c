@@ -3177,7 +3177,7 @@ CURLcode Curl_http_readwrite_headers(struct SessionHandle *data,
           /* Activate pipelining if needed */
           cb_ptr = conn->bundle;
           if(cb_ptr) {
-            if(!cb_ptr->site_blacklisted)
+            if(!Curl_pipeline_site_blacklisted(data, conn))
               cb_ptr->server_supports_pipelining = TRUE;
           }
         }

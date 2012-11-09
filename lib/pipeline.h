@@ -26,8 +26,6 @@ struct connectbundle {
   bool server_supports_pipelining; /* TRUE if server supports pipelining,
                                       set after first response */
   size_t num_connections;       /* Number of connections in the bundle */
-  bool site_blacklisted;        /* True if the site is in the blacklist
-                                   set in the multi handle */
   struct curl_llist *conn_list; /* The connectdata members of the bundle */
   struct curl_llist *pend_list; /* A queue of pending handles */
 };

@@ -5175,9 +5175,6 @@ static CURLcode create_conn(struct SessionHandle *data,
         if(result != CURLE_OK)
           return result;
 
-        conn->bundle->site_blacklisted =
-          Curl_pipeline_site_blacklisted(data, conn);
-
         result = Curl_bundle_add_conn(data, conn->bundle, conn);
         if(result != CURLE_OK)
           return result;
