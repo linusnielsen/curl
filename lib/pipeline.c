@@ -35,12 +35,26 @@
 /* The last #include file should be: */
 #include "memdebug.h"
 
+struct site_blacklist_entry {
+  char *hostname;
+  unsigned short port;
+};
+
 static void conn_llist_dtor(void *user, void *element)
 {
   struct connectdata *data = element;
   (void)user;
 
   data->bundle = NULL;
+}
+
+static void blacklist_llist_dtor(void *user, void *element)
+{
+  struct site_blacklist_entry *entry = element;
+  (void)user;
+
+  Curl_safefree(entry->hostname);
+  Curl_safefree(entry);
 }
 
 static void pend_llist_dtor(void *user, void *element)
@@ -324,19 +338,76 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
 bool Curl_pipeline_site_blacklisted(struct SessionHandle *handle,
                                     struct connectdata *conn)
 {
-  struct curl_slist *blacklist = Curl_multi_pipelining_site_bl(handle->multi);
-  struct curl_slist *site;
+  struct curl_llist *blacklist = Curl_multi_pipelining_site_bl(handle->multi);
+  struct curl_llist_element *curr;
   size_t hostnamelen = strlen(conn->host.name);
 
-  for(site = blacklist;site;site = site->next) {
-    infof(handle, "Comparing host %s and bl %s\n",
-          conn->host.name, site->data);
-    if(Curl_raw_nequal(site->data, conn->host.name, hostnamelen)) {
-      infof(handle, "%s is blacklisted\n", conn->host.name);
+  curr = blacklist->head;
+  while(curr) {
+    struct site_blacklist_entry *site;
+
+    site = curr->ptr;
+    if(Curl_raw_nequal(site->hostname, conn->host.name, hostnamelen) &&
+       site->port == conn->remote_port) {
       return TRUE;
     }
+    curr = curr->next;
   }
   return FALSE;
+}
+
+CURLMcode Curl_pipeline_set_site_blacklist(char **sites,
+                                           struct curl_llist **list_ptr)
+{
+  struct curl_llist *old_list = *list_ptr;
+  struct curl_llist *new_list = NULL;
+
+  if(sites) {
+    new_list = Curl_llist_alloc((curl_llist_dtor) blacklist_llist_dtor);
+    if(!new_list)
+      return CURLM_OUT_OF_MEMORY;
+
+    /* Parse the URLs and populate the list */
+    while(*sites) {
+      char *hostname;
+      char *port;
+      struct site_blacklist_entry *entry;
+
+      entry = malloc(sizeof(struct site_blacklist_entry));
+
+      hostname = strdup(*sites);
+      if(!hostname)
+        return CURLM_OUT_OF_MEMORY;
+
+      port = strchr(hostname, ':');
+      if(port) {
+        *port = '\0';
+        port++;
+        entry->port = (unsigned short)strtol(port, NULL, 10);
+      }
+      else {
+        /* Default port number for HTTP */
+        entry->port = 80;
+      }
+
+      entry->hostname = hostname;
+
+      if(!Curl_llist_insert_next(new_list, new_list->tail, entry))
+        return CURLM_OUT_OF_MEMORY;
+
+      sites++;
+    }
+  }
+
+  /* Free the old list */
+  if(old_list) {
+    Curl_llist_destroy(old_list, NULL);
+  }
+
+  /* This might be NULL if sites == NULL, i.e the blacklist is cleared */
+  *list_ptr = new_list;
+
+  return CURLM_OK;
 }
 
 void print_pipeline(struct connectdata *conn)
