@@ -327,7 +327,7 @@ bool Curl_pipeline_site_blacklisted(const struct SessionHandle *handle,
   struct curl_slist *site;
   int hostnamelen = strlen(conn->host.name);
 
-  for(site = blacklist;site;site->next) {
+  for(site = blacklist;site;site = site->next) {
     infof(handle, "Comparing host %s and bl %s\n",
           conn->host.name, site->data);
     if(Curl_raw_nequal(site->data, conn->host.name, hostnamelen)) {
