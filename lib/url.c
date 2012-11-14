@@ -2727,6 +2727,14 @@ CURLcode Curl_disconnect(struct connectdata *conn, bool dead_connection)
       data->state.connc->connects[conn->connectindex] = NULL;
   }
 
+  /* This may be a shared connection, then we have to decrease the
+     reference count on the closure handle */
+  if(conn->handler->flags & PROTOPT_CLOSEACTION &&
+    conn->closure_handle) {
+    if(conn->closure_handle->state.shared_conn)
+      conn->closure_handle->state.shared_conn--;
+  }
+
 #if defined(USE_LIBIDN)
   if(conn->host.encalloc)
     idn_free(conn->host.encalloc); /* encoded host name buffer, must be freed
@@ -3229,6 +3237,16 @@ static void ConnectionStore(struct SessionHandle *data,
     */
     data->state.connc->connects[i] = conn; /* fill in this */
     conn->data = data;
+  }
+
+  /* The multi interface will need to close connections in a controlled
+     manned, so we reserve this handle for that purpose */
+  if(data->multi && conn->handler->flags & PROTOPT_CLOSEACTION &&
+    !conn->closure_handle) {
+    conn->closure_handle = data;
+    data->state.shared_conn++;
+    infof(data, "Connection %p shared_conn: %d\n",
+          data, data->state.shared_conn);
   }
 }
 

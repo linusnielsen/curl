@@ -795,6 +795,10 @@ struct connectdata {
                  be used by any other easy handle without careful
                  consideration (== only for pipelining). */
 
+  /* This points to the SessionHandle to use when taking appropriate action
+     when closing the connection, e.g sending QUIT on an FTP control channel */
+  struct SessionHandle *closure_handle;
+
   /**** Fields set when inited and not modified again */
   long connectindex; /* what index in the connection cache connects index this
                         particular struct has */
@@ -1244,11 +1248,10 @@ struct UrlState {
   /* for FTP downloads: how many CRLFs did we converted to LFs? */
   curl_off_t crlf_conversions;
 #endif
-  /* If set to non-NULL, there's a connection in a shared connection cache
-     that uses this handle so we can't kill this SessionHandle just yet but
-     must keep it around and add it to the list of handles to kill once all
-     its connections are gone */
-  void *shared_conn;
+  /* This is a reference count to connections in the shared connection cache
+     that uses this handle. If this is >0 we can't kill this SessionHandle,
+     but must keep it around, and close it once all its connections are gone */
+  int shared_conn;
   bool closed; /* set to TRUE when curl_easy_cleanup() has been called on this
                   handle, but it is kept around as mentioned for
                   shared_conn */
