@@ -100,7 +100,6 @@ void Curl_bundle_destroy(struct SessionHandle *data,
     Curl_llist_destroy(cb_ptr->pend_list, NULL);
   if(cb_ptr->conn_list)
     Curl_llist_destroy(cb_ptr->conn_list, NULL);
-  infof(data, "Curl_bundle_destroy(%p)\n", cb_ptr);
   Curl_safefree(cb_ptr);
 }
 
@@ -127,11 +126,9 @@ int Curl_bundle_remove_conn(struct SessionHandle *data,
 
   curr = cb_ptr->conn_list->head;
   while(curr) {
-    infof(data, "Curl_bundle_remove() %p == %p\n", curr->ptr, conn);
     if(curr->ptr == conn) {
       Curl_llist_remove(cb_ptr->conn_list, curr, NULL);
       cb_ptr->num_connections--;
-      infof(data, "Curl_bundle_remove() %d left\n", cb_ptr->num_connections);
       return 1; /* we removed a handle */
     }
     curr = curr->next;
@@ -293,7 +290,7 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
   size_t pipe_len = conn->send_pipe->size + conn->recv_pipe->size;
   struct connectbundle *cb_ptr = conn->bundle;
   bool is_pipelining = (cb_ptr && cb_ptr->server_supports_pipelining);
-  struct curl_llist_element *curr;
+  struct curl_llist_element *curr = NULL;
   size_t max_pipe_len;
 
   infof(data, "Curl_check_pend_pipeline %p\n", conn);
@@ -307,7 +304,8 @@ int Curl_check_pend_pipeline(struct connectdata *conn)
   else
     max_pipe_len = 1;
 
-  curr = cb_ptr->pend_list->head;
+  if(cb_ptr)
+    curr = cb_ptr->pend_list->head;
 
   while(pipe_len < max_pipe_len && curr) {
     struct SessionHandle *handle;
