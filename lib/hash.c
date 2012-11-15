@@ -330,7 +330,8 @@ void Curl_hash_start_iterate(struct curl_hash *hash,
   iter->current_element = NULL;
 }
 
-void *Curl_hash_next_element(struct curl_hash_iterator *iter)
+struct curl_hash_element *
+Curl_hash_next_element(struct curl_hash_iterator *iter)
 {
   int i;
   struct curl_hash *h = iter->hash;
@@ -352,7 +353,7 @@ void *Curl_hash_next_element(struct curl_hash_iterator *iter)
 
   if(iter->current_element) {
     struct curl_hash_element *he = iter->current_element->ptr;
-    return he->ptr;
+    return he;
   }
   else {
     iter->current_element = NULL;
@@ -365,7 +366,7 @@ void Curl_hash_print(struct curl_hash *h,
                      void (*func)(void *))
 {
   struct curl_hash_iterator iter;
-  void *ptr;
+  struct curl_hash_element *he;
   int last_index = -1;
 
   if(!h)
@@ -375,8 +376,8 @@ void Curl_hash_print(struct curl_hash *h,
 
   Curl_hash_start_iterate(h, &iter);
 
-  ptr = Curl_hash_next_element(&iter);
-  while(ptr) {
+  he = Curl_hash_next_element(&iter);
+  while(he) {
     if(iter.slot_index != last_index) {
       fprintf(stderr, "index %d:", iter.slot_index);
       if(last_index >= 0) {
@@ -386,11 +387,11 @@ void Curl_hash_print(struct curl_hash *h,
     }
 
     if(func)
-      func(ptr);
+      func(he->ptr);
     else
-      fprintf(stderr, " [%p]", ptr);
+      fprintf(stderr, " [%p]", he->ptr);
 
-    ptr = Curl_hash_next_element(&iter);
+    he = Curl_hash_next_element(&iter);
   }
   fprintf(stderr, "\n");
 }

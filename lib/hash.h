@@ -96,7 +96,8 @@ size_t Curl_str_key_compare(void*k1, size_t key1_len, void*k2,
 
 void Curl_hash_start_iterate(struct curl_hash *hash,
                              struct curl_hash_iterator *iter);
-void *Curl_hash_next_element(struct curl_hash_iterator *iter);
+struct curl_hash_element *
+Curl_hash_next_element(struct curl_hash_iterator *iter);
 
 void Curl_hash_print(struct curl_hash *h,
                      void (*func)(void *));
