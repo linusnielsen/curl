@@ -3240,7 +3240,7 @@ static void ConnectionStore(struct SessionHandle *data,
   }
 
   /* The multi interface will need to close connections in a controlled
-     manned, so we reserve this handle for that purpose */
+     manner, so we reserve this handle for that purpose */
   if(data->multi && conn->handler->flags & PROTOPT_CLOSEACTION &&
     !conn->closure_handle) {
     conn->closure_handle = data;
