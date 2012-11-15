@@ -795,13 +795,9 @@ struct connectdata {
                  be used by any other easy handle without careful
                  consideration (== only for pipelining). */
 
-  /* This points to the SessionHandle to use when taking appropriate action
-     when closing the connection, e.g sending QUIT on an FTP control channel */
-  struct SessionHandle *closure_handle;
-
   /**** Fields set when inited and not modified again */
-  long connectindex; /* what index in the connection cache connects index this
-                        particular struct has */
+  long connection_id; /* Contains a unique number to make it easier to
+                         track the connections in the log output */
 
   /* 'dns_entry' is the particular host we use. This points to an entry in the
      DNS cache and it will not get pruned while locked. It gets unlocked in
@@ -1144,18 +1140,6 @@ struct auth {
                    be RFC compliant */
 };
 
-struct conncache {
-  /* 'connects' will be an allocated array with pointers. If the pointer is
-     set, it holds an allocated connection. */
-  struct connectdata **connects;
-  long num;           /* number of entries of the 'connects' array */
-  enum {
-    CONNCACHE_PRIVATE, /* used for an easy handle alone */
-    CONNCACHE_MULTI    /* shared within a multi handle */
-  } type;
-};
-
-
 struct UrlState {
   enum {
     Curl_if_none,
@@ -1163,13 +1147,13 @@ struct UrlState {
     Curl_if_multi
   } used_interface;
 
-  struct conncache *connc; /* points to the connection cache this handle
-                              uses */
+  /* Points to the connection cache */
+  struct conncache *conn_cache;
 
   /* buffers to store authentication data in, as parsed from input options */
   struct timeval keeps_speed; /* for the progress meter really */
 
-  long lastconnect;  /* index of most recent connect or -1 if undefined */
+  struct connectdata *lastconnect; /* The last connection, NULL if undefined */
 
   char *headerbuff; /* allocated buffer to store headers in */
   size_t headersize;   /* size of the allocation */
@@ -1590,6 +1574,8 @@ struct UserDefined {
   bool tcp_keepalive;    /* use TCP keepalives */
   long tcp_keepidle;     /* seconds in idle before sending keepalive probe */
   long tcp_keepintvl;    /* seconds between TCP keepalive probes */
+
+  size_t maxconnects;  /* Max idle connections in the connection cache */
 };
 
 struct Names {

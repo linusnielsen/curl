@@ -22,28 +22,6 @@
  *
  ***************************************************************************/
 
-struct connectbundle {
-  bool server_supports_pipelining; /* TRUE if server supports pipelining,
-                                      set after first response */
-  size_t num_connections;       /* Number of connections in the bundle */
-  struct curl_llist *conn_list; /* The connectdata members of the bundle */
-  struct curl_llist *pend_list; /* A queue of pending handles */
-};
-
-CURLcode Curl_bundle_create(struct SessionHandle *data,
-                            struct connectbundle **cb_ptr);
-
-void Curl_bundle_destroy(struct SessionHandle *data,
-                         struct connectbundle *cb_ptr);
-
-CURLcode Curl_bundle_add_conn(struct SessionHandle *data,
-                              struct connectbundle *cb_ptr,
-                              struct connectdata *conn);
-
-int Curl_bundle_remove_conn(struct SessionHandle *data,
-                            struct connectbundle *cb_ptr,
-                            struct connectdata *conn);
-
 struct connectdata *
 Curl_bundle_find_best(struct SessionHandle *data,
                       struct connectbundle *cb_ptr);

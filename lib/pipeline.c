@@ -31,6 +31,7 @@
 #include "pipeline.h"
 #include "sendf.h"
 #include "rawstr.h"
+#include "bundles.h"
 
 /* The last #include file should be: */
 #include "memdebug.h"
@@ -39,14 +40,6 @@ struct site_blacklist_entry {
   char *hostname;
   unsigned short port;
 };
-
-static void conn_llist_dtor(void *user, void *element)
-{
-  struct connectdata *data = element;
-  (void)user;
-
-  data->bundle = NULL;
-}
 
 static void site_blacklist_llist_dtor(void *user, void *element)
 {
@@ -63,77 +56,6 @@ static void server_blacklist_llist_dtor(void *user, void *element)
   (void)user;
 
   Curl_safefree(server_name);
-}
-
-static void pend_llist_dtor(void *user, void *element)
-{
-  (void)element;
-  (void)user;
-}
-
-CURLcode Curl_bundle_create(struct SessionHandle *data,
-                            struct connectbundle **cb_ptr)
-{
-  (void)data;
-  *cb_ptr = malloc(sizeof(struct connectbundle));
-  if(!*cb_ptr)
-    return CURLE_OUT_OF_MEMORY;
-
-  (*cb_ptr)->num_connections = 0;
-  (*cb_ptr)->server_supports_pipelining = FALSE;
-
-  (*cb_ptr)->conn_list = Curl_llist_alloc((curl_llist_dtor) conn_llist_dtor);
-  if(!(*cb_ptr)->conn_list)
-    return CURLE_OUT_OF_MEMORY;
-
-  (*cb_ptr)->pend_list = Curl_llist_alloc((curl_llist_dtor) pend_llist_dtor);
-  if(!(*cb_ptr)->pend_list)
-    return CURLE_OUT_OF_MEMORY;
-  return CURLE_OK;
-}
-
-void Curl_bundle_destroy(struct SessionHandle *data,
-                         struct connectbundle *cb_ptr)
-{
-  (void)data;
-  if(cb_ptr->pend_list)
-    Curl_llist_destroy(cb_ptr->pend_list, NULL);
-  if(cb_ptr->conn_list)
-    Curl_llist_destroy(cb_ptr->conn_list, NULL);
-  Curl_safefree(cb_ptr);
-}
-
-/* Add a connection to a bundle */
-CURLcode Curl_bundle_add_conn(struct SessionHandle *data,
-                              struct connectbundle *cb_ptr,
-                              struct connectdata *conn)
-{
-  (void)data;
-  if(!Curl_llist_insert_next(cb_ptr->conn_list, cb_ptr->conn_list->tail, conn))
-    return CURLE_OUT_OF_MEMORY;
-
-  cb_ptr->num_connections++;
-  return CURLE_OK;
-}
-
-/* Remove a connection from a bundle */
-int Curl_bundle_remove_conn(struct SessionHandle *data,
-                            struct connectbundle *cb_ptr,
-                            struct connectdata *conn)
-{
-  struct curl_llist_element *curr;
-  (void)data;
-
-  curr = cb_ptr->conn_list->head;
-  while(curr) {
-    if(curr->ptr == conn) {
-      Curl_llist_remove(cb_ptr->conn_list, curr, NULL);
-      cb_ptr->num_connections--;
-      return 1; /* we removed a handle */
-    }
-    curr = curr->next;
-  }
-  return 0;
 }
 
 static bool pipeline_penalized(struct connectdata *conn)

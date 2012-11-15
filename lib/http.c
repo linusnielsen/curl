@@ -79,6 +79,7 @@
 #include "http_proxy.h"
 #include "warnless.h"
 #include "non-ascii.h"
+#include "bundles.h"
 #include "pipeline.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
