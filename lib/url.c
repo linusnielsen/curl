@@ -4718,289 +4718,296 @@ static CURLcode create_conn(struct SessionHandle *data,
 
   *async = FALSE;
 
-  /*************************************************************
-   * Check input data
-   *************************************************************/
-
-  if(!data->change.url)
-    return CURLE_URL_MALFORMAT;
-
-  /* First, split up the current URL in parts so that we can use the
-     parts for checking against the already present connections. In order
-     to not have to modify everything at once, we allocate a temporary
-     connection data struct and fill in for comparison purposes. */
-  conn = allocate_conn(data);
-
-  if(!conn)
-    return CURLE_OUT_OF_MEMORY;
-
-  /* We must set the return variable as soon as possible, so that our
-     parent can cleanup any possible allocs we may have done before
-     any failure */
-  *in_connect = conn;
-
-  /* This initing continues below, see the comment "Continue connectdata
-   * initialization here" */
-
-  /***********************************************************
-   * We need to allocate memory to store the path in. We get the size of the
-   * full URL to be sure, and we need to make it at least 256 bytes since
-   * other parts of the code will rely on this fact
-   ***********************************************************/
-#define LEAST_PATH_ALLOC 256
-  urllen=strlen(data->change.url);
-  if(urllen < LEAST_PATH_ALLOC)
-    urllen=LEAST_PATH_ALLOC;
-
-  /*
-   * We malloc() the buffers below urllen+2 to make room for to possibilities:
-   * 1 - an extra terminating zero
-   * 2 - an extra slash (in case a syntax like "www.host.com?moo" is used)
-   */
-
-  Curl_safefree(data->state.pathbuffer);
-  data->state.path = NULL;
-
-  data->state.pathbuffer = malloc(urllen+2);
-  if(NULL == data->state.pathbuffer)
-    return CURLE_OUT_OF_MEMORY; /* really bad error */
-  data->state.path = data->state.pathbuffer;
-
-  conn->host.rawalloc = malloc(urllen+2);
-  if(NULL == conn->host.rawalloc) {
-    Curl_safefree(data->state.pathbuffer);
-    data->state.path = NULL;
-    return CURLE_OUT_OF_MEMORY;
-  }
-
-  conn->host.name = conn->host.rawalloc;
-  conn->host.name[0] = 0;
-
-  result = parseurlandfillconn(data, conn, &prot_missing, user, passwd);
-  if(result != CURLE_OK)
-    return result;
-
-  /*************************************************************
-   * No protocol part in URL was used, add it!
-   *************************************************************/
-  if(prot_missing) {
-    /* We're guessing prefixes here and if we're told to use a proxy or if
-       we're gonna follow a Location: later or... then we need the protocol
-       part added so that we have a valid URL. */
-    char *reurl;
-
-    reurl = aprintf("%s://%s", conn->handler->scheme, data->change.url);
-
-    if(!reurl) {
-      Curl_safefree(proxy);
-      return CURLE_OUT_OF_MEMORY;
-    }
-
-    if(data->change.url_alloc) {
-      Curl_safefree(data->change.url);
-      data->change.url_alloc = FALSE;
-    }
-
-    data->change.url = reurl;
-    data->change.url_alloc = TRUE; /* free this later */
-  }
-
-  /*************************************************************
-   * If the protocol can't handle url query strings, then cut
-   * of the unhandable part
-   *************************************************************/
-  if((conn->given->flags&PROTOPT_NOURLQUERY)) {
-    char *path_q_sep = strchr(conn->data->state.path, '?');
-    if(path_q_sep) {
-      /* according to rfc3986, allow the query (?foo=bar)
-         also on protocols that can't handle it.
-
-        cut the string-part after '?'
-         */
-
-      /* terminate the string */
-      path_q_sep[0] = 0;
-    }
-  }
-
-#ifndef CURL_DISABLE_PROXY
-  /*************************************************************
-   * Extract the user and password from the authentication string
-   *************************************************************/
-  if(conn->bits.proxy_user_passwd) {
-    result = parse_proxy_auth(data, conn);
-    if(result != CURLE_OK)
-        return result;
-  }
-
-  /*************************************************************
-   * Detect what (if any) proxy to use
-   *************************************************************/
-  if(data->set.str[STRING_PROXY]) {
-    proxy = strdup(data->set.str[STRING_PROXY]);
-    /* if global proxy is set, this is it */
-    if(NULL == proxy) {
-      failf(data, "memory shortage");
-      return CURLE_OUT_OF_MEMORY;
-    }
-  }
-
-  if(data->set.str[STRING_NOPROXY] &&
-     check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY])) {
-    if(proxy) {
-      free(proxy);  /* proxy is in exception list */
-      proxy = NULL;
-    }
-  }
-  else if(!proxy)
-    proxy = detect_proxy(conn);
-
-  if(proxy && (!*proxy || (conn->handler->flags & PROTOPT_NONETWORK))) {
-    free(proxy);  /* Don't bother with an empty proxy string or if the
-                     protocol doesn't work with network */
-    proxy = NULL;
-  }
-
-  /***********************************************************************
-   * If this is supposed to use a proxy, we need to figure out the proxy host
-   * name, proxy type and port number, so that we can re-use an existing
-   * connection that may exist registered to the same proxy host.
-   ***********************************************************************/
-  if(proxy) {
-    result = parse_proxy(data, conn, proxy);
-
-    free(proxy); /* parse_proxy copies the proxy string */
-
-    if(result)
-      return result;
-
-    if((conn->proxytype == CURLPROXY_HTTP) ||
-       (conn->proxytype == CURLPROXY_HTTP_1_0)) {
-#ifdef CURL_DISABLE_HTTP
-      /* asking for a HTTP proxy is a bit funny when HTTP is disabled... */
-      return CURLE_UNSUPPORTED_PROTOCOL;
-#else
-      /* force this connection's protocol to become HTTP if not already
-         compatible - if it isn't tunneling through */
-      if(!(conn->handler->protocol & CURLPROTO_HTTP) &&
-         !conn->bits.tunnel_proxy)
-        conn->handler = &Curl_handler_http;
-
-      conn->bits.httpproxy = TRUE;
-#endif
-    }
-    else
-      conn->bits.httpproxy = FALSE; /* not a HTTP proxy */
-    conn->bits.proxy = TRUE;
+  /* Have we already created a connection? This happens when we retry after
+     having been denied to open a new connection. */
+  if(data->state.pending_conn) {
+    conn = data->state.pending_conn;
   }
   else {
-    /* we aren't using the proxy after all... */
-    conn->bits.proxy = FALSE;
-    conn->bits.httpproxy = FALSE;
-    conn->bits.proxy_user_passwd = FALSE;
-    conn->bits.tunnel_proxy = FALSE;
-  }
+    /*************************************************************
+     * Check input data
+     *************************************************************/
+
+    if(!data->change.url)
+      return CURLE_URL_MALFORMAT;
+
+    /* First, split up the current URL in parts so that we can use the
+       parts for checking against the already present connections. In order
+       to not have to modify everything at once, we allocate a temporary
+       connection data struct and fill in for comparison purposes. */
+    conn = allocate_conn(data);
+
+    if(!conn)
+      return CURLE_OUT_OF_MEMORY;
+
+    /* We must set the return variable as soon as possible, so that our
+       parent can cleanup any possible allocs we may have done before
+       any failure */
+    *in_connect = conn;
+
+    /* This initing continues below, see the comment "Continue connectdata
+     * initialization here" */
+
+    /***********************************************************
+     * We need to allocate memory to store the path in. We get the size of the
+     * full URL to be sure, and we need to make it at least 256 bytes since
+     * other parts of the code will rely on this fact
+     ***********************************************************/
+#define LEAST_PATH_ALLOC 256
+    urllen=strlen(data->change.url);
+    if(urllen < LEAST_PATH_ALLOC)
+      urllen=LEAST_PATH_ALLOC;
+
+    /*
+     * We malloc() the buffers below urllen+2 to make room for 2 possibilities:
+     * 1 - an extra terminating zero
+     * 2 - an extra slash (in case a syntax like "www.host.com?moo" is used)
+     */
+
+    Curl_safefree(data->state.pathbuffer);
+    data->state.path = NULL;
+
+    data->state.pathbuffer = malloc(urllen+2);
+    if(NULL == data->state.pathbuffer)
+      return CURLE_OUT_OF_MEMORY; /* really bad error */
+    data->state.path = data->state.pathbuffer;
+
+    conn->host.rawalloc = malloc(urllen+2);
+    if(NULL == conn->host.rawalloc) {
+      Curl_safefree(data->state.pathbuffer);
+      data->state.path = NULL;
+      return CURLE_OUT_OF_MEMORY;
+    }
+
+    conn->host.name = conn->host.rawalloc;
+    conn->host.name[0] = 0;
+
+    result = parseurlandfillconn(data, conn, &prot_missing, user, passwd);
+    if(result != CURLE_OK)
+      return result;
+
+    /*************************************************************
+     * No protocol part in URL was used, add it!
+     *************************************************************/
+    if(prot_missing) {
+      /* We're guessing prefixes here and if we're told to use a proxy or if
+         we're gonna follow a Location: later or... then we need the protocol
+         part added so that we have a valid URL. */
+      char *reurl;
+
+      reurl = aprintf("%s://%s", conn->handler->scheme, data->change.url);
+
+      if(!reurl) {
+        Curl_safefree(proxy);
+        return CURLE_OUT_OF_MEMORY;
+      }
+
+      if(data->change.url_alloc) {
+        Curl_safefree(data->change.url);
+        data->change.url_alloc = FALSE;
+      }
+
+      data->change.url = reurl;
+      data->change.url_alloc = TRUE; /* free this later */
+    }
+
+    /*************************************************************
+     * If the protocol can't handle url query strings, then cut
+     * of the unhandable part
+     *************************************************************/
+    if((conn->given->flags&PROTOPT_NOURLQUERY)) {
+      char *path_q_sep = strchr(conn->data->state.path, '?');
+      if(path_q_sep) {
+        /* according to rfc3986, allow the query (?foo=bar)
+           also on protocols that can't handle it.
+
+           cut the string-part after '?'
+        */
+
+        /* terminate the string */
+        path_q_sep[0] = 0;
+      }
+    }
+
+#ifndef CURL_DISABLE_PROXY
+    /*************************************************************
+     * Extract the user and password from the authentication string
+     *************************************************************/
+    if(conn->bits.proxy_user_passwd) {
+      result = parse_proxy_auth(data, conn);
+      if(result != CURLE_OK)
+        return result;
+    }
+
+    /*************************************************************
+     * Detect what (if any) proxy to use
+     *************************************************************/
+    if(data->set.str[STRING_PROXY]) {
+      proxy = strdup(data->set.str[STRING_PROXY]);
+      /* if global proxy is set, this is it */
+      if(NULL == proxy) {
+        failf(data, "memory shortage");
+        return CURLE_OUT_OF_MEMORY;
+      }
+    }
+
+    if(data->set.str[STRING_NOPROXY] &&
+       check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY])) {
+      if(proxy) {
+        free(proxy);  /* proxy is in exception list */
+        proxy = NULL;
+      }
+    }
+    else if(!proxy)
+      proxy = detect_proxy(conn);
+
+    if(proxy && (!*proxy || (conn->handler->flags & PROTOPT_NONETWORK))) {
+      free(proxy);  /* Don't bother with an empty proxy string or if the
+                       protocol doesn't work with network */
+      proxy = NULL;
+    }
+
+    /***********************************************************************
+     * If this is supposed to use a proxy, we need to figure out the proxy host
+     * name, proxy type and port number, so that we can re-use an existing
+     * connection that may exist registered to the same proxy host.
+     ***********************************************************************/
+    if(proxy) {
+      result = parse_proxy(data, conn, proxy);
+
+      free(proxy); /* parse_proxy copies the proxy string */
+
+      if(result)
+        return result;
+
+      if((conn->proxytype == CURLPROXY_HTTP) ||
+         (conn->proxytype == CURLPROXY_HTTP_1_0)) {
+#ifdef CURL_DISABLE_HTTP
+        /* asking for a HTTP proxy is a bit funny when HTTP is disabled... */
+        return CURLE_UNSUPPORTED_PROTOCOL;
+#else
+        /* force this connection's protocol to become HTTP if not already
+           compatible - if it isn't tunneling through */
+        if(!(conn->handler->protocol & CURLPROTO_HTTP) &&
+           !conn->bits.tunnel_proxy)
+          conn->handler = &Curl_handler_http;
+
+        conn->bits.httpproxy = TRUE;
+#endif
+      }
+      else
+        conn->bits.httpproxy = FALSE; /* not a HTTP proxy */
+      conn->bits.proxy = TRUE;
+    }
+    else {
+      /* we aren't using the proxy after all... */
+      conn->bits.proxy = FALSE;
+      conn->bits.httpproxy = FALSE;
+      conn->bits.proxy_user_passwd = FALSE;
+      conn->bits.tunnel_proxy = FALSE;
+    }
 
 #endif /* CURL_DISABLE_PROXY */
 
-  /*************************************************************
-   * Setup internals depending on protocol. Needs to be done after
-   * we figured out what/if proxy to use.
-   *************************************************************/
-  result = setup_connection_internals(conn);
-  if(result != CURLE_OK) {
-    Curl_safefree(proxy);
-    return result;
-  }
-
-  conn->recv[FIRSTSOCKET] = Curl_recv_plain;
-  conn->send[FIRSTSOCKET] = Curl_send_plain;
-  conn->recv[SECONDARYSOCKET] = Curl_recv_plain;
-  conn->send[SECONDARYSOCKET] = Curl_send_plain;
-
-  /***********************************************************************
-   * file: is a special case in that it doesn't need a network connection
-   ***********************************************************************/
-#ifndef CURL_DISABLE_FILE
-  if(conn->handler->flags & PROTOPT_NONETWORK) {
-    bool done;
-    /* this is supposed to be the connect function so we better at least check
-       that the file is present here! */
-    DEBUGASSERT(conn->handler->connect_it);
-    result = conn->handler->connect_it(conn, &done);
-
-    /* Setup a "faked" transfer that'll do nothing */
-    if(CURLE_OK == result) {
-      conn->data = data;
-      conn->bits.tcpconnect[FIRSTSOCKET] = TRUE; /* we are "connected */
-
-      ConnectionStore(data, conn);
-
-      /*
-       * Setup whatever necessary for a resumed transfer
-       */
-      result = setup_range(data);
-      if(result) {
-        DEBUGASSERT(conn->handler->done);
-        /* we ignore the return code for the protocol-specific DONE */
-        (void)conn->handler->done(conn, result, FALSE);
-        return result;
-      }
-
-      Curl_setup_transfer(conn, -1, -1, FALSE, NULL, /* no download */
-                          -1, NULL); /* no upload */
+    /*************************************************************
+     * Setup internals depending on protocol. Needs to be done after
+     * we figured out what/if proxy to use.
+     *************************************************************/
+    result = setup_connection_internals(conn);
+    if(result != CURLE_OK) {
+      Curl_safefree(proxy);
+      return result;
     }
 
-    return result;
-  }
+    conn->recv[FIRSTSOCKET] = Curl_recv_plain;
+    conn->send[FIRSTSOCKET] = Curl_send_plain;
+    conn->recv[SECONDARYSOCKET] = Curl_recv_plain;
+    conn->send[SECONDARYSOCKET] = Curl_send_plain;
+
+    /***********************************************************************
+     * file: is a special case in that it doesn't need a network connection
+     ***********************************************************************/
+#ifndef CURL_DISABLE_FILE
+    if(conn->handler->flags & PROTOPT_NONETWORK) {
+      bool done;
+      /* this is supposed to be the connect function so we better at least
+         check that the file is present here! */
+      DEBUGASSERT(conn->handler->connect_it);
+      result = conn->handler->connect_it(conn, &done);
+
+      /* Setup a "faked" transfer that'll do nothing */
+      if(CURLE_OK == result) {
+        conn->data = data;
+        conn->bits.tcpconnect[FIRSTSOCKET] = TRUE; /* we are "connected */
+
+        ConnectionStore(data, conn);
+
+        /*
+         * Setup whatever necessary for a resumed transfer
+         */
+        result = setup_range(data);
+        if(result) {
+          DEBUGASSERT(conn->handler->done);
+          /* we ignore the return code for the protocol-specific DONE */
+          (void)conn->handler->done(conn, result, FALSE);
+          return result;
+        }
+
+        Curl_setup_transfer(conn, -1, -1, FALSE, NULL, /* no download */
+                            -1, NULL); /* no upload */
+      }
+
+      return result;
+    }
 #endif
 
-  /*************************************************************
-   * If the protocol is using SSL and HTTP proxy is used, we set
-   * the tunnel_proxy bit.
-   *************************************************************/
-  if((conn->given->flags&PROTOPT_SSL) && conn->bits.httpproxy)
-    conn->bits.tunnel_proxy = TRUE;
+    /*************************************************************
+     * If the protocol is using SSL and HTTP proxy is used, we set
+     * the tunnel_proxy bit.
+     *************************************************************/
+    if((conn->given->flags&PROTOPT_SSL) && conn->bits.httpproxy)
+      conn->bits.tunnel_proxy = TRUE;
 
-  /*************************************************************
-   * Figure out the remote port number and fix it in the URL
-   *************************************************************/
-  result = parse_remote_port(data, conn);
-  if(result != CURLE_OK)
-    return result;
+    /*************************************************************
+     * Figure out the remote port number and fix it in the URL
+     *************************************************************/
+    result = parse_remote_port(data, conn);
+    if(result != CURLE_OK)
+      return result;
 
-  /*************************************************************
-   * Check for an overridden user name and password, then set it
-   * for use
-   *************************************************************/
-  override_userpass(data, conn, user, passwd);
-  result = set_userpass(conn, user, passwd);
-  if(result != CURLE_OK)
-    return result;
+    /*************************************************************
+     * Check for an overridden user name and password, then set it
+     * for use
+     *************************************************************/
+    override_userpass(data, conn, user, passwd);
+    result = set_userpass(conn, user, passwd);
+    if(result != CURLE_OK)
+      return result;
 
-  /* Get a cloned copy of the SSL config situation stored in the
-     connection struct. But to get this going nicely, we must first make
-     sure that the strings in the master copy are pointing to the correct
-     strings in the session handle strings array!
+    /* Get a cloned copy of the SSL config situation stored in the
+       connection struct. But to get this going nicely, we must first make
+       sure that the strings in the master copy are pointing to the correct
+       strings in the session handle strings array!
 
-     Keep in mind that the pointers in the master copy are pointing to strings
-     that will be freed as part of the SessionHandle struct, but all cloned
-     copies will be separately allocated.
-  */
-  data->set.ssl.CApath = data->set.str[STRING_SSL_CAPATH];
-  data->set.ssl.CAfile = data->set.str[STRING_SSL_CAFILE];
-  data->set.ssl.CRLfile = data->set.str[STRING_SSL_CRLFILE];
-  data->set.ssl.issuercert = data->set.str[STRING_SSL_ISSUERCERT];
-  data->set.ssl.random_file = data->set.str[STRING_SSL_RANDOM_FILE];
-  data->set.ssl.egdsocket = data->set.str[STRING_SSL_EGDSOCKET];
-  data->set.ssl.cipher_list = data->set.str[STRING_SSL_CIPHER_LIST];
+       Keep in mind that the pointers in the master copy are pointing to
+       strings that will be freed as part of the SessionHandle struct, but
+       all cloned copies will be separately allocated.
+    */
+    data->set.ssl.CApath = data->set.str[STRING_SSL_CAPATH];
+    data->set.ssl.CAfile = data->set.str[STRING_SSL_CAFILE];
+    data->set.ssl.CRLfile = data->set.str[STRING_SSL_CRLFILE];
+    data->set.ssl.issuercert = data->set.str[STRING_SSL_ISSUERCERT];
+    data->set.ssl.random_file = data->set.str[STRING_SSL_RANDOM_FILE];
+    data->set.ssl.egdsocket = data->set.str[STRING_SSL_EGDSOCKET];
+    data->set.ssl.cipher_list = data->set.str[STRING_SSL_CIPHER_LIST];
 #ifdef USE_TLS_SRP
-  data->set.ssl.username = data->set.str[STRING_TLSAUTH_USERNAME];
-  data->set.ssl.password = data->set.str[STRING_TLSAUTH_PASSWORD];
+    data->set.ssl.username = data->set.str[STRING_TLSAUTH_USERNAME];
+    data->set.ssl.password = data->set.str[STRING_TLSAUTH_PASSWORD];
 #endif
 
-  if(!Curl_clone_ssl_config(&data->set.ssl, &conn->ssl_config))
-    return CURLE_OUT_OF_MEMORY;
+    if(!Curl_clone_ssl_config(&data->set.ssl, &conn->ssl_config))
+      return CURLE_OUT_OF_MEMORY;
+  }
 
   /*************************************************************
    * Check the current list of connections to see if we can
@@ -5080,12 +5087,19 @@ static CURLcode create_conn(struct SessionHandle *data,
        * cache of ours!
        */
       ConnectionStore(data, conn);
+
+      /* The connection is no longer pending */
+      data->state.pending_conn = NULL;
     }
   }
 
   if(no_connections_available) {
     infof(data, "No connections available.\n");
-    conn_free(conn);          /* sorry, better luck next time */
+
+    /* Save the connection so we don't have to create it again when
+       we retry later on. */
+    data->state.pending_conn = conn;
+
     return CURLE_NO_CONNECTION_AVAILABLE;
   }
 

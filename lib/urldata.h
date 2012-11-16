@@ -1153,6 +1153,13 @@ struct UrlState {
   /* buffers to store authentication data in, as parsed from input options */
   struct timeval keeps_speed; /* for the progress meter really */
 
+  struct connectdata *pending_conn; /* This points to the connection we want
+                                       to open when we are waiting in the
+                                       CONNECT_PEND state in the multi
+                                       interface. This to avoid recreating it
+                                       when we enter the CONNECT state again.
+                                    */
+
   struct connectdata *lastconnect; /* The last connection, NULL if undefined */
 
   char *headerbuff; /* allocated buffer to store headers in */
