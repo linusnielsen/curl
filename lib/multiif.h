@@ -54,6 +54,8 @@ void Curl_multi_dump(const struct Curl_multi *multi_handle);
 void Curl_multi_set_easy_connection(struct SessionHandle *handle,
                                     struct connectdata *conn);
 
+void Curl_multi_process_pending_handles(struct Curl_multi *multi);
+
 /* Return the value of the CURLMOPT_MAX_HOST_CONNECTIONS option */
 size_t Curl_multi_max_host_connections(struct Curl_multi *multi);
 

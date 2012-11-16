@@ -27,7 +27,6 @@ struct connectbundle {
                                       set after first response */
   size_t num_connections;       /* Number of connections in the bundle */
   struct curl_llist *conn_list; /* The connectdata members of the bundle */
-  struct curl_llist *pend_list; /* A queue of pending handles */
 };
 
 CURLcode Curl_bundle_create(struct SessionHandle *data,

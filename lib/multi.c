@@ -73,24 +73,25 @@ struct Curl_message {
 */
 typedef enum {
   CURLM_STATE_INIT,        /* 0 - start in this state */
-  CURLM_STATE_CONNECT,     /* 1 - resolve/connect has been sent off */
-  CURLM_STATE_WAITRESOLVE, /* 2 - awaiting the resolve to finalize */
-  CURLM_STATE_WAITCONNECT, /* 3 - awaiting the connect to finalize */
-  CURLM_STATE_WAITPROXYCONNECT, /* 4 - awaiting proxy CONNECT to finalize */
-  CURLM_STATE_PROTOCONNECT, /* 5 - completing the protocol-specific connect
+  CURLM_STATE_CONNECT_PEND,/* 1 - no connections, waiting for one */
+  CURLM_STATE_CONNECT,     /* 2 - resolve/connect has been sent off */
+  CURLM_STATE_WAITRESOLVE, /* 3 - awaiting the resolve to finalize */
+  CURLM_STATE_WAITCONNECT, /* 4 - awaiting the connect to finalize */
+  CURLM_STATE_WAITPROXYCONNECT, /* 5 - awaiting proxy CONNECT to finalize */
+  CURLM_STATE_PROTOCONNECT, /* 6 - completing the protocol-specific connect
                                phase */
-  CURLM_STATE_WAITDO,      /* 6 - wait for our turn to send the request */
-  CURLM_STATE_DO,          /* 7 - start send off the request (part 1) */
-  CURLM_STATE_DOING,       /* 8 - sending off the request (part 1) */
-  CURLM_STATE_DO_MORE,     /* 9 - send off the request (part 2) */
-  CURLM_STATE_DO_DONE,     /* 10 - done sending off request */
-  CURLM_STATE_WAITPERFORM, /* 11 - wait for our turn to read the response */
-  CURLM_STATE_PERFORM,     /* 12 - transfer data */
-  CURLM_STATE_TOOFAST,     /* 13 - wait because limit-rate exceeded */
-  CURLM_STATE_DONE,        /* 14 - post data transfer operation */
-  CURLM_STATE_COMPLETED,   /* 15 - operation complete */
-  CURLM_STATE_MSGSENT,     /* 16 - the operation complete message is sent */
-  CURLM_STATE_LAST         /* 17 - not a true state, never use this */
+  CURLM_STATE_WAITDO,      /* 7 - wait for our turn to send the request */
+  CURLM_STATE_DO,          /* 8 - start send off the request (part 1) */
+  CURLM_STATE_DOING,       /* 9 - sending off the request (part 1) */
+  CURLM_STATE_DO_MORE,     /* 10 - send off the request (part 2) */
+  CURLM_STATE_DO_DONE,     /* 11 - done sending off request */
+  CURLM_STATE_WAITPERFORM, /* 12 - wait for our turn to read the response */
+  CURLM_STATE_PERFORM,     /* 13 - transfer data */
+  CURLM_STATE_TOOFAST,     /* 14 - wait because limit-rate exceeded */
+  CURLM_STATE_DONE,        /* 15 - post data transfer operation */
+  CURLM_STATE_COMPLETED,   /* 16 - operation complete */
+  CURLM_STATE_MSGSENT,     /* 17 - the operation complete message is sent */
+  CURLM_STATE_LAST         /* 18 - not a true state, never use this */
 } CURLMstate;
 
 /* we support N sockets per easy handle. Set the corresponding bit to what
@@ -212,6 +213,7 @@ static CURLMcode add_next_timeout(struct timeval now,
 #ifdef DEBUGBUILD
 static const char * const statename[]={
   "INIT",
+  "CONNECT_PEND",
   "CONNECT",
   "WAITRESOLVE",
   "WAITCONNECT",
@@ -248,10 +250,12 @@ static void multistate(struct Curl_one_easy *easy, CURLMstate state)
   easy->state = state;
 
 #ifdef DEBUGBUILD
-  if(easy->easy_conn) {
-    if(easy->state > CURLM_STATE_CONNECT &&
-       easy->state < CURLM_STATE_COMPLETED)
+  if(easy->state >= CURLM_STATE_CONNECT_PEND &&
+     easy->state < CURLM_STATE_COMPLETED) {
+    if(easy->easy_conn)
       connection_id = easy->easy_conn->connection_id;
+    else
+      connection_id = -1;
 
     infof(easy->easy_handle,
           "STATE: %s => %s handle %p; (connection #%ld) \n",
@@ -400,7 +404,6 @@ static void multi_freeamsg(void *a, void *b)
   (void)b;
 }
 
-
 CURLM *curl_multi_init(void)
 {
   struct Curl_multi *multi = calloc(1, sizeof(struct Curl_multi));
@@ -432,7 +435,7 @@ CURLM *curl_multi_init(void)
   multi->easy.next = &multi->easy;
   multi->easy.prev = &multi->easy;
 
-  multi->max_host_connections = 1;
+  multi->max_host_connections = 0;
   multi->max_pipeline_length = 5;
 
   return (CURLM *) multi;
@@ -1100,11 +1103,24 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       }
       break;
 
+    case CURLM_STATE_CONNECT_PEND:
+      /* We will stay here until there is a connection available. Then
+         we try again in the CURLM_STATE_CONNECT state. */
+      break;
+
     case CURLM_STATE_CONNECT:
-      /* Connect. We get a connection identifier filled in. */
+      /* Connect. We want to get a connection identifier filled in. */
       Curl_pgrsTime(data, TIMER_STARTSINGLE);
       easy->result = Curl_connect(data, &easy->easy_conn,
                                   &async, &protocol_connect);
+
+      if(CURLE_NO_CONNECTION_AVAILABLE == easy->result) {
+        /* There was no connection available. We will go to the pending
+           state and wait for an available connection. */
+        multistate(easy, CURLM_STATE_CONNECT_PEND);
+        easy->result = CURLM_OK;
+        break;
+      }
 
       if(CURLE_OK == easy->result) {
         /* Add this handle to the send or pend pipeline */
@@ -1449,7 +1465,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
       /* Move ourselves from the send to recv pipeline */
       Curl_move_handle_from_send_to_recv_pipe(data, easy->easy_conn);
       /* Check if we can move pending requests to send pipe */
-      Curl_check_pend_pipeline(easy->easy_conn);
+      Curl_multi_process_pending_handles(multi);
       multistate(easy, CURLM_STATE_WAITPERFORM);
       result = CURLM_CALL_MULTI_PERFORM;
       break;
@@ -1571,7 +1587,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
           Curl_expire(easy->easy_conn->recv_pipe->head->ptr, 1);
 
         /* Check if we can move pending requests to send pipe */
-        Curl_check_pend_pipeline(easy->easy_conn);
+        Curl_multi_process_pending_handles(multi);
 
         /* When we follow redirects or is set to retry the connection, we must
            to go back to the CONNECT state */
@@ -1626,7 +1642,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
         Curl_removeHandleFromPipeline(data,
                                       easy->easy_conn->recv_pipe);
         /* Check if we can move pending requests to send pipe */
-        Curl_check_pend_pipeline(easy->easy_conn);
+        Curl_multi_process_pending_handles(multi);
 
         if(easy->easy_conn->bits.stream_was_rewound) {
           /* This request read past its response boundary so we quickly let
@@ -1704,7 +1720,7 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
           Curl_removeHandleFromPipeline(data,
                                         easy->easy_conn->recv_pipe);
           /* Check if we can move pending requests to send pipe */
-          Curl_check_pend_pipeline(easy->easy_conn);
+          Curl_multi_process_pending_handles(multi);
 
           if(disconnect_conn) {
             /* disconnect properly */
@@ -2637,22 +2653,22 @@ CURLMcode curl_multi_assign(CURLM *multi_handle,
 
 size_t Curl_multi_max_host_connections(struct Curl_multi *multi)
 {
-  return multi->max_host_connections;
+  return multi ? multi->max_host_connections : 0;
 }
 
 size_t Curl_multi_max_pipeline_length(struct Curl_multi *multi)
 {
-  return multi->max_pipeline_length;
+  return multi ? multi->max_pipeline_length : 0;
 }
 
 curl_off_t Curl_multi_content_length_penalty_size(struct Curl_multi *multi)
 {
-  return multi->content_length_penalty_size;
+  return multi ? multi->content_length_penalty_size : 0;
 }
 
 curl_off_t Curl_multi_chunk_length_penalty_size(struct Curl_multi *multi)
 {
-  return multi->chunk_length_penalty_size;
+  return multi ? multi->chunk_length_penalty_size : 0;
 }
 
 struct curl_llist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi)
@@ -2663,6 +2679,19 @@ struct curl_llist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi)
 struct curl_llist *Curl_multi_pipelining_server_bl(struct Curl_multi *multi)
 {
   return multi->pipelining_server_bl;
+}
+
+void Curl_multi_process_pending_handles(struct Curl_multi *multi)
+{
+  struct Curl_one_easy *easy;
+
+  easy=multi->easy.next;
+  while(easy != &multi->easy) {
+    if(easy->state == CURLM_STATE_CONNECT_PEND) {
+      multistate(easy, CURLM_STATE_CONNECT);
+    }
+    easy = easy->next; /* operate on next handle */
+  }
 }
 
 #ifdef DEBUGBUILD

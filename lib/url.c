@@ -2487,16 +2487,6 @@ static void conn_free(struct connectdata *conn)
   if(!conn)
     return;
 
-#if 0
-  if(conn->bundle) {
-    struct connectbundle *bundle = conn->bundle;
-    if(Curl_bundle_remove_conn(conn->bundle, conn)) {
-      if(bundle->num_connections == 0) {
-        Curl_bundle_destroy(conn->data, bundle);
-      }
-    }
-  }
-#endif
   /* possible left-overs from the async name resolvers */
   Curl_resolver_cancel(conn);
 
@@ -2792,20 +2782,34 @@ ConnectionExists(struct SessionHandle *data,
                   (data->state.authhost.want==CURLAUTH_NTLM_WB);
   struct connectbundle *bundle;
 
+  /* We can't pipe if the site is blacklisted */
+  if(canPipeline && Curl_pipeline_site_blacklisted(data, needle)) {
+    canPipeline = FALSE;
+  }
+
   /* Look up the bundle with all the connections to this
      particular host */
   bundle = Curl_conncache_find_bundle(data->state.conn_cache,
                                       needle->host.name);
   if(bundle) {
-    bool match = FALSE;
-    bool credentialsMatch = FALSE;
-    size_t pipeLen = 0;
+    size_t max_pipe_len = Curl_multi_max_pipeline_length(data->multi);
+    size_t best_pipe_len = max_pipe_len;
     struct curl_llist_element *curr;
 
     infof(data, "Found bundle for host %s: %p\n", needle->host.name, bundle);
 
+    /* We can't pipe if we don't know anything about the server */
+    if(canPipeline && !bundle->server_supports_pipelining) {
+      infof(data, "Server doesn't support pipelining\n");
+      canPipeline = FALSE;
+    }
+
     curr = bundle->conn_list->head;
     while(curr) {
+      bool match = FALSE;
+      bool credentialsMatch = FALSE;
+      size_t pipeLen;
+
       /*
        * Note that if we use a HTTP proxy, we check connections to that
        * proxy and not to the actual remote server.
@@ -2987,26 +2991,48 @@ ConnectionExists(struct SessionHandle *data,
       }
 
       if(match) {
-        chosen = check;
+        /* If we are looking for an NTLM connection, check if this is already
+           authenticating with the right credentials. If not, keep looking so
+           that we can reuse NTLM connections if possible. (Especially we
+           must not reuse the same connection if partway through
+           a handshake!) */
+          if(wantNTLM &&
+             (!credentialsMatch || (check->ntlm.state == NTLMSTATE_NONE)))
+            continue;
 
-        /* If we are not looking for an NTLM connection, we can choose this one
-           immediately. */
-        if(!wantNTLM)
-          break;
+        if(canPipeline) {
+          /* We can pipeline if we want to. Let's continue looking for
+             the optimal connection to use, i.e the shortest pipe that is not
+             blacklisted. */
 
-        /* Otherwise, check if this is already authenticating with the right
-           credentials. If not, keep looking so that we can reuse NTLM
-           connections if possible. (Especially we must reuse the same
-           connection if partway through a handshake!) */
-        if(credentialsMatch && chosen->ntlm.state != NTLMSTATE_NONE)
+          if(pipeLen == 0) {
+            /* We have the optimal connection. Let's stop looking. */
+            chosen = check;
+            break;
+          }
+
+          /* We can't use the connection if the pipe is full */
+          if(pipeLen >= max_pipe_len)
+            continue;
+
+          if(pipeLen < best_pipe_len) {
+            /* This connection has a shorter pipe so far. We'll pick this
+               and continue searching */
+            chosen = check;
+            best_pipe_len = pipeLen;
+            continue;
+          }
+        }
+        else {
+          /* We have found a connection. Let's stop searching. */
+          chosen = check;
           break;
+        }
       }
     }
   }
 
   if(chosen) {
-    chosen->inuse = TRUE; /* mark this as being in use so that no other
-                            handle in a multi stack may nick it */
     *usethis = chosen;
     return TRUE; /* yes, we found one to use! */
   }
@@ -4695,7 +4721,7 @@ static CURLcode create_conn(struct SessionHandle *data,
   bool prot_missing = FALSE;
   bool canPipeline;
   size_t pipeLen;
-
+  bool no_connections_available = FALSE;
 
   *async = FALSE;
 
@@ -5001,30 +5027,25 @@ static CURLcode create_conn(struct SessionHandle *data,
   if(reuse) {
     canPipeline = IsPipeliningPossible(data, conn_temp);
 
-    infof(data, "reuse. canPipeline = %d \n", canPipeline);
     if(canPipeline) {
-      infof(data, "*** Found pipelineable connection\n");
-
-      conn_temp = Curl_bundle_find_best(data, conn_temp->bundle);
-
       pipeLen = conn_temp->send_pipe->size + conn_temp->recv_pipe->size;
 
-      infof(data, "Found best connection: %d with %d in the pipe\n",
+      infof(data, "Found connection: %d with %d in the pipe\n",
             conn_temp->connection_id, pipeLen);
 
       if(conn_temp->bundle->num_connections <
          Curl_multi_max_host_connections(data->multi)) {
-        /* We want a new connection in the same bundle */
+        /* We want a new connection anyway */
         reuse = FALSE;
 
-        infof(data, "Creating new connection in the same bundle\n");
+        infof(data, "Creating new connection anyway\n");
       }
       else {
-        infof(data, "Reused. Pipe length: %d\n", pipeLen);
+        infof(data, "Reused connection %d\n",
+              conn_temp->connection_id, pipeLen);
       }
     }
   }
-
 
   if(reuse) {
     /*
@@ -5033,6 +5054,8 @@ static CURLcode create_conn(struct SessionHandle *data,
      * just allocated before we can move along and use the previously
      * existing one.
      */
+    conn_temp->inuse = TRUE; /* mark this as being in use so that no other
+                                handle in a multi stack may nick it */
     reuse_conn(conn, conn_temp);
     free(conn);          /* we don't need this anymore */
     conn = conn_temp;
@@ -5046,12 +5069,31 @@ static CURLcode create_conn(struct SessionHandle *data,
           conn->proxy.name?conn->proxy.dispname:conn->host.dispname);
   }
   else {
-    /*
-     * This is a brand new connection, so let's store it in the connection
-     * cache of ours!
-     */
-    ConnectionStore(data, conn);
+    /* We have decided that we want a new connection. However, we may not
+       be able to do that if we have reached the limit of how many
+       connections we are allowed to open. */
+    struct connectbundle *bundle;
+    size_t max_connections = Curl_multi_max_host_connections(data->multi);
 
+    bundle = Curl_conncache_find_bundle(data->state.conn_cache,
+                                        conn->host.name);
+    if(max_connections > 0 && bundle &&
+       (bundle->num_connections >= max_connections)) {
+      no_connections_available = TRUE;
+    }
+    else {
+      /*
+       * This is a brand new connection, so let's store it in the connection
+       * cache of ours!
+       */
+      ConnectionStore(data, conn);
+    }
+  }
+
+  if(no_connections_available) {
+    infof(data, "No connections available.\n");
+    conn_free(conn);          /* sorry, better luck next time */
+    return CURLE_NO_CONNECTION_AVAILABLE;
   }
 
   /* Setup and init stuff before DO starts, in preparing for the transfer. */
@@ -5222,6 +5264,11 @@ CURLcode Curl_connect(struct SessionHandle *data,
          really did finish already (synch resolver/fast async resolve) */
       code = Curl_setup_conn(*in_connect, protocol_done);
     }
+  }
+
+  if(code == CURLE_NO_CONNECTION_AVAILABLE) {
+    *in_connect = NULL;
+    return code;
   }
 
   if(code && *in_connect) {

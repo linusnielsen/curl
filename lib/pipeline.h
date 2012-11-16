@@ -26,14 +26,12 @@ struct connectdata *
 Curl_bundle_find_best(struct SessionHandle *data,
                       struct connectbundle *cb_ptr);
 
-CURLcode Curl_bundle_add_to_queue(struct SessionHandle *handle,
-                                  struct connectbundle *cb_ptr);
-
 CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
                                      struct connectdata *conn);
 void Curl_move_handle_from_send_to_recv_pipe(struct SessionHandle *handle,
                                              struct connectdata *conn);
-int Curl_check_pend_pipeline(struct connectdata *conn);
+bool Curl_pipeline_penalized(struct SessionHandle *data,
+                             struct connectdata *conn);
 
 bool Curl_pipeline_site_blacklisted(struct SessionHandle *handle,
                                     struct connectdata *conn);

@@ -43,12 +43,6 @@ static void conn_llist_dtor(void *user, void *element)
   data->bundle = NULL;
 }
 
-static void pend_llist_dtor(void *user, void *element)
-{
-  (void)element;
-  (void)user;
-}
-
 CURLcode Curl_bundle_create(struct SessionHandle *data,
                             struct connectbundle **cb_ptr)
 {
@@ -63,17 +57,11 @@ CURLcode Curl_bundle_create(struct SessionHandle *data,
   (*cb_ptr)->conn_list = Curl_llist_alloc((curl_llist_dtor) conn_llist_dtor);
   if(!(*cb_ptr)->conn_list)
     return CURLE_OUT_OF_MEMORY;
-
-  (*cb_ptr)->pend_list = Curl_llist_alloc((curl_llist_dtor) pend_llist_dtor);
-  if(!(*cb_ptr)->pend_list)
-    return CURLE_OUT_OF_MEMORY;
   return CURLE_OK;
 }
 
 void Curl_bundle_destroy(struct connectbundle *cb_ptr)
 {
-  if(cb_ptr->pend_list)
-    Curl_llist_destroy(cb_ptr->pend_list, NULL);
   if(cb_ptr->conn_list)
     Curl_llist_destroy(cb_ptr->conn_list, NULL);
   Curl_safefree(cb_ptr);
