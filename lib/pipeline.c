@@ -116,11 +116,9 @@ Curl_bundle_find_best(struct SessionHandle *data,
 CURLcode Curl_add_handle_to_pipeline(struct SessionHandle *handle,
                                      struct connectdata *conn)
 {
-  size_t pipeLen = conn->send_pipe->size + conn->recv_pipe->size;
   struct curl_llist_element *sendhead = conn->send_pipe->head;
   struct curl_llist *pipeline;
   CURLcode rc;
-  struct connectbundle *cb_ptr = conn->bundle;
 
   pipeline = conn->send_pipe;
 

@@ -360,6 +360,9 @@ typedef enum {
      pipelining */
   CINIT(PIPELINING_SERVER_BL, OBJECTPOINT, 12),
 
+  /* maximum number of open connections in total */
+  CINIT(MAX_TOTAL_CONNECTIONS, LONG, 13),
+
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;
 

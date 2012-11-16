@@ -45,6 +45,7 @@
 #include "warnless.h"
 #include "speedcheck.h"
 #include "conncache.h"
+#include "bundles.h"
 #include "pipeline.h"
 
 #define _MPRINTF_REPLACE /* use our functions only */
@@ -173,7 +174,10 @@ struct Curl_multi {
                        we're allowed to grow the connection cache to */
 
   long max_host_connections; /* if >0, a fixed limit of the maximum number
-                                of connections per bundle */
+                                of connections per host */
+
+  long max_total_connections; /* if >0, a fixed limit of the maximum number
+                                 of connections in total */
 
   long max_pipeline_length; /* if >0, maximum number of requests in a
                                pipeline */
@@ -480,6 +484,8 @@ CURLMcode curl_multi_add_handle(CURLM *multi_handle,
   if(!multi->closure_handle) {
     multi->closure_handle =
       (struct SessionHandle *)curl_easy_init();
+    Curl_easy_addmulti(easy_handle, multi_handle);
+    multi->closure_handle->state.conn_cache = multi->conn_cache;
   }
 
   /* Allocate and initialize timeout list for easy handle */
@@ -1842,15 +1848,19 @@ CURLMcode curl_multi_perform(CURLM *multi_handle, int *running_handles)
   return returncode;
 }
 
-/* This is a callback function that is called by the Curl_conncache_foreach()
-   call below. */
-static void closeconn(void *ptr, void *param)
+static void close_all_connections(struct Curl_multi *multi)
 {
-  struct connectdata *conn = ptr;
-  struct Curl_multi *multi = param;
+  struct connectdata *conn;
 
-  conn->data = multi->closure_handle;
-  Curl_disconnect(conn, FALSE);
+  conn = Curl_conncache_find_first_connection(multi->conn_cache);
+  while(conn) {
+    conn->data = multi->closure_handle;
+
+    /* This will remove the connection from the cache */
+    (void)Curl_disconnect(conn, FALSE);
+
+    conn = Curl_conncache_find_first_connection(multi->conn_cache);
+  }
 }
 
 CURLMcode curl_multi_cleanup(CURLM *multi_handle)
@@ -1863,7 +1873,7 @@ CURLMcode curl_multi_cleanup(CURLM *multi_handle)
     multi->type = 0; /* not good anymore */
 
     /* Close all the connections in the connection cache */
-    Curl_conncache_foreach(multi->conn_cache, multi, closeconn);
+    close_all_connections(multi);
 
     Curl_close(multi->closure_handle);
     multi->closure_handle = NULL;
@@ -2341,6 +2351,9 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
     res = Curl_pipeline_set_server_blacklist(va_arg(param, char **),
                                              &multi->pipelining_server_bl);
     break;
+  case CURLMOPT_MAX_TOTAL_CONNECTIONS:
+    multi->max_total_connections = va_arg(param, long);
+    break;
 
   default:
     res = CURLM_UNKNOWN_OPTION;
@@ -2654,6 +2667,11 @@ CURLMcode curl_multi_assign(CURLM *multi_handle,
 size_t Curl_multi_max_host_connections(struct Curl_multi *multi)
 {
   return multi ? multi->max_host_connections : 0;
+}
+
+size_t Curl_multi_max_total_connections(struct Curl_multi *multi)
+{
+  return multi ? multi->max_total_connections : 0;
 }
 
 size_t Curl_multi_max_pipeline_length(struct Curl_multi *multi)

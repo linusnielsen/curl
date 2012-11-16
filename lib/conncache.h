@@ -28,6 +28,7 @@ struct conncache {
     CONNCACHE_PRIVATE, /* used for an easy handle alone */
     CONNCACHE_MULTI    /* shared within a multi handle */
   } type;
+  size_t num_connections;
 };
 
 struct conncache *Curl_conncache_init(int type);
@@ -37,12 +38,8 @@ void Curl_conncache_destroy(struct conncache *connc);
 struct connectbundle *Curl_conncache_find_bundle(struct conncache *connc,
                                                  char *hostname);
 
-bool Curl_conncache_add_bundle(struct conncache *connc,
-                               char *hostname,
-                               struct connectbundle *bundle);
-
-void Curl_conncache_remove_bundle(struct conncache *connc,
-                                  struct connectbundle *bundle);
+CURLcode Curl_conncache_add_conn(struct conncache *connc,
+                                 struct connectdata *conn);
 
 void Curl_conncache_remove_conn(struct conncache *connc,
                                 struct connectdata *conn);
@@ -50,6 +47,9 @@ void Curl_conncache_remove_conn(struct conncache *connc,
 void Curl_conncache_foreach(struct conncache *connc,
                             void *param,
                             void (*func)(void *, void *));
+
+struct connectdata *
+Curl_conncache_find_first_connection(struct conncache *connc);
 
 void Curl_conncache_print(struct conncache *connc);
 

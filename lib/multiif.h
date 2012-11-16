@@ -74,4 +74,7 @@ struct curl_llist *Curl_multi_pipelining_site_bl(struct Curl_multi *multi);
 /* Return the value of the CURLMOPT_PIPELINING_SERVER_BL option */
 struct curl_llist *Curl_multi_pipelining_server_bl(struct Curl_multi *multi);
 
+/* Return the value of the CURLMOPT_MAX_TOTAL_CONNECTIONS option */
+size_t Curl_multi_max_total_connections(struct Curl_multi *multi);
+
 #endif /* __MULTIIF_H */

@@ -62,6 +62,7 @@ struct conncache *Curl_conncache_init(int type)
   }
 
   connc->type = type;
+  connc->num_connections = 0;
 
   return connc;
 }
@@ -83,9 +84,9 @@ struct connectbundle *Curl_conncache_find_bundle(struct conncache *connc,
   return bundle;
 }
 
-bool Curl_conncache_add_bundle(struct conncache *connc,
-                               char *hostname,
-                               struct connectbundle *bundle)
+static bool conncache_add_bundle(struct conncache *connc,
+                                 char *hostname,
+                                 struct connectbundle *bundle)
 {
   void *p;
 
@@ -94,8 +95,8 @@ bool Curl_conncache_add_bundle(struct conncache *connc,
   return p?TRUE:FALSE;
 }
 
-void Curl_conncache_remove_bundle(struct conncache *connc,
-                                  struct connectbundle *bundle)
+static void conncache_remove_bundle(struct conncache *connc,
+                                    struct connectbundle *bundle)
 {
   struct curl_hash_iterator iter;
   struct curl_hash_element *he;
@@ -118,6 +119,41 @@ void Curl_conncache_remove_bundle(struct conncache *connc,
   }
 }
 
+CURLcode Curl_conncache_add_conn(struct conncache *connc,
+                                 struct connectdata *conn)
+{
+  CURLcode result;
+  struct connectbundle *bundle;
+  struct SessionHandle *data = conn->data;
+
+  bundle = Curl_conncache_find_bundle(data->state.conn_cache,
+                                      conn->host.name);
+  if(!bundle) {
+    infof(data, "Conncache: No bundle, creating one\n");
+    result = Curl_bundle_create(data, &bundle);
+    if(result != CURLE_OK)
+      return result;
+
+    if(!conncache_add_bundle(data->state.conn_cache,
+                             conn->host.name, bundle))
+      return CURLE_OUT_OF_MEMORY;
+  }
+
+  result = Curl_bundle_add_conn(bundle, conn);
+  if(result != CURLE_OK)
+    return result;
+
+  connc->num_connections++;
+
+  DEBUGF(infof(data, "The %s bundle now contains %d members\n",
+               conn->host.name, bundle->num_connections));
+
+  DEBUGF(infof(data, "The cache now contains %d members\n",
+               connc->num_connections));
+
+  return CURLE_OK;
+}
+
 void Curl_conncache_remove_conn(struct conncache *connc,
                                 struct connectdata *conn)
 {
@@ -128,8 +164,12 @@ void Curl_conncache_remove_conn(struct conncache *connc,
   if(bundle) {
     Curl_bundle_remove_conn(bundle, conn);
     if(bundle->num_connections == 0) {
-      Curl_conncache_remove_bundle(connc, bundle);
+      conncache_remove_bundle(connc, bundle);
     }
+    connc->num_connections--;
+
+    DEBUGF(infof(conn->data, "The cache now contains %d members\n",
+                 connc->num_connections));
   }
 }
 
@@ -169,6 +209,34 @@ void Curl_conncache_foreach(struct conncache *connc,
     he = Curl_hash_next_element(&iter);
   }
 }
+
+/* Return the first connection found in the cache. Used when closing all
+   connections */
+struct connectdata *
+Curl_conncache_find_first_connection(struct conncache *connc)
+{
+  struct curl_hash_iterator iter;
+  struct curl_llist_element *curr;
+  struct curl_hash_element *he;
+  struct connectbundle *bundle;
+
+  Curl_hash_start_iterate(connc->hash, &iter);
+
+  he = Curl_hash_next_element(&iter);
+  while(he) {
+    bundle = he->ptr;
+
+    curr = bundle->conn_list->head;
+    if(curr) {
+      return curr->ptr;
+    }
+
+    he = Curl_hash_next_element(&iter);
+  }
+
+  return NULL;
+}
+
 
 #if 0
 /* Useful for debugging the connection cache */

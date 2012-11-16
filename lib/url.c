@@ -3037,7 +3037,7 @@ ConnectionExists(struct SessionHandle *data,
  * This function kills and removes an existing connection in the connection
  * cache. The connection that has been unused for the longest time.
  *
- * Returns -1 if it can't find any unused connection to kill.
+ * Returns FALSE if it can't find any unused connection to kill.
  */
 static bool
 ConnectionKillOne(struct SessionHandle *data)
@@ -3096,6 +3096,55 @@ ConnectionKillOne(struct SessionHandle *data)
   return FALSE;
 }
 
+/*
+ * This function kills and removes the oldest unused connection from a
+ * specific bundle in the connection cache.
+ *
+ * Returns FALSE if it can't find any unused connection to kill.
+ */
+static bool
+ConnectionBundleKillOne(struct SessionHandle *data,
+                        struct connectbundle *bundle)
+{
+  struct curl_llist_element *curr;
+  long highscore=-1;
+  long score;
+  struct timeval now;
+  struct connectdata *conn_candidate = NULL;
+
+  now = Curl_tvnow();
+
+  curr = bundle->conn_list->head;
+  while(curr) {
+    struct connectdata *conn = curr->ptr;
+
+    if(!conn->inuse) {
+      /* Set higher score for the age passed since the connection was used */
+      score = Curl_tvdiff(now, conn->now);
+
+      if(score > highscore) {
+        highscore = score;
+        conn_candidate = conn;
+      }
+    }
+    curr = curr->next;
+  }
+
+  if(conn_candidate) {
+    /* Set the connection's owner correctly */
+    conn_candidate->data = data;
+
+    bundle = conn_candidate->bundle;
+
+    /* the winner gets the honour of being disconnected */
+    (void)Curl_disconnect(conn_candidate, /* dead_connection */ FALSE);
+
+    return TRUE;
+  }
+
+  return FALSE;
+}
+
 /* this connection can now be marked 'idle' */
 static void
 ConnectionDone(struct connectdata *conn)
@@ -3114,32 +3163,13 @@ ConnectionDone(struct connectdata *conn)
 static CURLcode ConnectionStore(struct SessionHandle *data,
                                 struct connectdata *conn)
 {
-  struct connectbundle *cb;
-  CURLcode result;
   static int connection_id_counter = 0;
 
   /* Assign a number to the connection for easier tracking in the log
      output */
   conn->connection_id = connection_id_counter++;
 
-  cb = Curl_conncache_find_bundle(data->state.conn_cache, conn->host.name);
-  if(!cb) {
-    infof(data, "No bundle, creating one\n");
-    result = Curl_bundle_create(data, &cb);
-    if(result != CURLE_OK)
-      return result;
-
-    Curl_conncache_add_bundle(data->state.conn_cache,
-                              conn->host.name, cb);
-  }
-  result = Curl_bundle_add_conn(cb, conn);
-  if(result != CURLE_OK)
-    return result;
-
-  infof(data, "Bundle now contains %d members\n",
-        cb->num_connections);
-
-  return CURLE_OK;
+  return Curl_conncache_add_conn(data->state.conn_cache, conn);
 }
 
 /* after a TCP connection to the proxy has been verified, this function does
@@ -5073,13 +5103,36 @@ static CURLcode create_conn(struct SessionHandle *data,
        be able to do that if we have reached the limit of how many
        connections we are allowed to open. */
     struct connectbundle *bundle;
-    size_t max_connections = Curl_multi_max_host_connections(data->multi);
+    size_t max_host_connections =
+      Curl_multi_max_host_connections(data->multi);
+    size_t max_total_connections =
+      Curl_multi_max_total_connections(data->multi);
 
     bundle = Curl_conncache_find_bundle(data->state.conn_cache,
                                         conn->host.name);
-    if(max_connections > 0 && bundle &&
-       (bundle->num_connections >= max_connections)) {
-      no_connections_available = TRUE;
+    if(max_host_connections > 0 && bundle &&
+       (bundle->num_connections >= max_host_connections)) {
+      /* The bundle is full. Let's see if we can kill a connection. */
+      if(!ConnectionBundleKillOne(data, bundle))
+        no_connections_available = TRUE;
+    }
+
+    if(max_total_connections > 0 &&
+       (data->state.conn_cache->num_connections >= max_total_connections)) {
+      /* The cache is full. Let's see if we can kill a connection. */
+      if(!ConnectionKillOne(data))
+        no_connections_available = TRUE;
+    }
+
+
+    if(no_connections_available) {
+      infof(data, "No connections available.\n");
+
+      /* Save the connection so we don't have to create it again when
+         we retry later on. */
+      data->state.pending_conn = conn;
+
+      return CURLE_NO_CONNECTION_AVAILABLE;
     }
     else {
       /*
@@ -5093,15 +5146,8 @@ static CURLcode create_conn(struct SessionHandle *data,
     }
   }
 
-  if(no_connections_available) {
-    infof(data, "No connections available.\n");
-
-    /* Save the connection so we don't have to create it again when
-       we retry later on. */
-    data->state.pending_conn = conn;
-
-    return CURLE_NO_CONNECTION_AVAILABLE;
-  }
+  /* Mark the connection as used */
+  conn->inuse = TRUE;
 
   /* Setup and init stuff before DO starts, in preparing for the transfer. */
   do_init(conn);
