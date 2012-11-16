@@ -452,13 +452,6 @@ CURLcode Curl_close(struct SessionHandle *data)
     }
   }
 
-  if(data->state.shared_conn) {
-    /* marked to be used by a pending connection so we can't kill this handle
-       just yet */
-    data->state.closed = TRUE;
-    return CURLE_OK;
-  }
-
   if(data->dns.hostcachetype == HCACHE_PRIVATE)
     Curl_hostcache_destroy(data);
 

@@ -1004,7 +1004,7 @@ struct connectdata {
     TUNNEL_COMPLETE /* CONNECT response received completely */
   } tunnel_state[2]; /* two separate ones to allow FTP */
 
-   struct connectbundle *bundle; /* The bundle we are member of (if any) */
+   struct connectbundle *bundle; /* The bundle we are member of */
 };
 
 /* The end of connectdata. */
@@ -1232,13 +1232,6 @@ struct UrlState {
   /* for FTP downloads: how many CRLFs did we converted to LFs? */
   curl_off_t crlf_conversions;
 #endif
-  /* This is a reference count to connections in the shared connection cache
-     that uses this handle. If this is >0 we can't kill this SessionHandle,
-     but must keep it around, and close it once all its connections are gone */
-  int shared_conn;
-  bool closed; /* set to TRUE when curl_easy_cleanup() has been called on this
-                  handle, but it is kept around as mentioned for
-                  shared_conn */
   char *pathbuffer;/* allocated buffer to store the URL's path part in */
   char *path;      /* path to use, points to somewhere within the pathbuffer
                       area */
