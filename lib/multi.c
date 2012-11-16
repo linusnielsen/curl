@@ -2689,6 +2689,8 @@ void Curl_multi_process_pending_handles(struct Curl_multi *multi)
   while(easy != &multi->easy) {
     if(easy->state == CURLM_STATE_CONNECT_PEND) {
       multistate(easy, CURLM_STATE_CONNECT);
+      /* Make sure that the handle will be processed soonish. */
+      Curl_expire(easy->easy_handle, 1);
     }
     easy = easy->next; /* operate on next handle */
   }
