@@ -129,7 +129,6 @@ CURLcode Curl_conncache_add_conn(struct conncache *connc,
   bundle = Curl_conncache_find_bundle(data->state.conn_cache,
                                       conn->host.name);
   if(!bundle) {
-    infof(data, "Conncache: No bundle, creating one\n");
     result = Curl_bundle_create(data, &bundle);
     if(result != CURLE_OK)
       return result;
@@ -144,12 +143,6 @@ CURLcode Curl_conncache_add_conn(struct conncache *connc,
     return result;
 
   connc->num_connections++;
-
-  DEBUGF(infof(data, "The %s bundle now contains %d members\n",
-               conn->host.name, bundle->num_connections));
-
-  DEBUGF(infof(data, "The cache now contains %d members\n",
-               connc->num_connections));
 
   return CURLE_OK;
 }
