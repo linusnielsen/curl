@@ -62,17 +62,21 @@ bool Curl_pipeline_penalized(struct SessionHandle *data,
                              struct connectdata *conn)
 {
   if(data) {
-    bool penalized;
+    bool penalized = FALSE;
     curl_off_t penalty_size =
       Curl_multi_content_length_penalty_size(data->multi);
+    curl_off_t chunk_penalty_size =
+      Curl_multi_chunk_length_penalty_size(data->multi);
 
-    if(penalty_size > 0 && data->req.size > penalty_size)
+    if(penalty_size > 0 && conn->data->req.size > penalty_size)
       penalized = TRUE;
-    else
-      penalized = FALSE;
 
-    infof(data, "Conn: %x Receive pipe weight: %d, penalized: %d\n",
-          conn, data->req.size, penalized);
+    if(chunk_penalty_size > 0 &&
+       (curl_off_t)conn->chunk.datasize > chunk_penalty_size)
+      penalized = TRUE;
+
+    infof(data, "Conn: %x Receive pipe weight: (%d/%d), penalized: %d\n",
+          conn, conn->data->req.size, conn->chunk.datasize, penalized);
     return penalized;
   }
   return FALSE;

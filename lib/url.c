@@ -3008,6 +3008,10 @@ ConnectionExists(struct SessionHandle *data,
           if(pipeLen >= max_pipe_len)
             continue;
 
+          /* We can't use the connection if the pipe is penalized */
+          if(!Curl_pipeline_penalized(data, check))
+            continue;
+
           if(pipeLen < best_pipe_len) {
             /* This connection has a shorter pipe so far. We'll pick this
                and continue searching */
