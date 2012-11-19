@@ -3009,7 +3009,7 @@ ConnectionExists(struct SessionHandle *data,
             continue;
 
           /* We can't use the connection if the pipe is penalized */
-          if(!Curl_pipeline_penalized(data, check))
+          if(Curl_pipeline_penalized(data, check))
             continue;
 
           if(pipeLen < best_pipe_len) {
