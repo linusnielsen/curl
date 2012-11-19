@@ -75,8 +75,9 @@ bool Curl_pipeline_penalized(struct SessionHandle *data,
        (curl_off_t)conn->chunk.datasize > chunk_penalty_size)
       penalized = TRUE;
 
-    infof(data, "Conn: %x Receive pipe weight: (%d/%d), penalized: %d\n",
-          conn, conn->data->req.size, conn->chunk.datasize, penalized);
+    infof(data, "Conn: %d (%p) Receive pipe weight: (%d/%d), penalized: %d\n",
+          conn->connection_id, conn, conn->data->req.size,
+          conn->chunk.datasize, penalized);
     return penalized;
   }
   return FALSE;
@@ -344,7 +345,8 @@ void print_pipeline(struct connectdata *conn)
     curr = cb_ptr->conn_list->head;
     while(curr) {
       conn = curr->ptr;
-      infof(data, "- Conn %p send_pipe: %d, recv_pipe: %d\n",
+      infof(data, "- Conn %d (%p) send_pipe: %d, recv_pipe: %d\n",
+            conn->connection_id,
             conn,
             conn->send_pipe->size,
             conn->recv_pipe->size);
