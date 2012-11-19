@@ -689,8 +689,10 @@ CURLMcode curl_multi_remove_handle(CURLM *multi_handle,
         (void)Curl_done(&easy->easy_conn, easy->result, premature);
 
         /* Remove the association between the connection and the handle */
-        easy->easy_conn->data = NULL;
-        easy->easy_conn = NULL;
+        if(easy->easy_conn) {
+          easy->easy_conn->data = NULL;
+          easy->easy_conn = NULL;
+        }
       }
       else
         /* Clear connection pipelines, if Curl_done above was not called */
