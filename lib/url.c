@@ -4756,6 +4756,7 @@ static CURLcode create_conn(struct SessionHandle *data,
      having been denied to open a new connection. */
   if(data->state.pending_conn) {
     conn = data->state.pending_conn;
+    *in_connect = conn;
   }
   else {
     /*************************************************************
