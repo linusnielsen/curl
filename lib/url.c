@@ -2762,11 +2762,15 @@ static void signalPipeClose(struct curl_llist *pipeline, bool pipe_broke)
  * If there is a match, this function returns TRUE - and has marked the
  * connection as 'in-use'. It must later be called with ConnectionDone() to
  * return back to 'idle' (unused) state.
+ *
+ * The force_reuse flag is set if the connection must be used, even if
+ * the pipelining strategy wants to open a new connection instead of reusing.
  */
 static bool
 ConnectionExists(struct SessionHandle *data,
                  struct connectdata *needle,
-                 struct connectdata **usethis)
+                 struct connectdata **usethis,
+                 bool *force_reuse)
 {
   struct connectdata *check;
   struct connectdata *chosen = 0;
@@ -2774,6 +2778,8 @@ ConnectionExists(struct SessionHandle *data,
   bool wantNTLM = (data->state.authhost.want==CURLAUTH_NTLM) ||
                   (data->state.authhost.want==CURLAUTH_NTLM_WB);
   struct connectbundle *bundle;
+
+  *force_reuse = FALSE;
 
   /* We can't pipe if the site is blacklisted */
   if(canPipeline && Curl_pipeline_site_blacklisted(data, needle)) {
@@ -2989,9 +2995,17 @@ ConnectionExists(struct SessionHandle *data,
            that we can reuse NTLM connections if possible. (Especially we
            must not reuse the same connection if partway through
            a handshake!) */
-          if(wantNTLM &&
-             (!credentialsMatch || (check->ntlm.state == NTLMSTATE_NONE)))
+        if(wantNTLM) {
+          if(credentialsMatch && check->ntlm.state != NTLMSTATE_NONE) {
+            chosen = check;
+
+            /* We must use this connection, no other */
+            *force_reuse = TRUE;
+            break;
+          }
+          else
             continue;
+        }
 
         if(canPipeline) {
           /* We can pipeline if we want to. Let's continue looking for
@@ -4749,6 +4763,7 @@ static CURLcode create_conn(struct SessionHandle *data,
   bool canPipeline;
   size_t pipeLen;
   bool no_connections_available = FALSE;
+  bool force_reuse;
 
   *async = FALSE;
 
@@ -5062,7 +5077,7 @@ static CURLcode create_conn(struct SessionHandle *data,
   if(data->set.reuse_fresh && !data->state.this_is_a_follow)
     reuse = FALSE;
   else
-    reuse = ConnectionExists(data, conn, &conn_temp);
+    reuse = ConnectionExists(data, conn, &conn_temp, &force_reuse);
 
   if(reuse) {
     canPipeline = IsPipeliningPossible(data, conn_temp);
@@ -5073,7 +5088,8 @@ static CURLcode create_conn(struct SessionHandle *data,
       infof(data, "Found connection: %d with %d in the pipe\n",
             conn_temp->connection_id, pipeLen);
 
-      if(conn_temp->bundle->num_connections <
+      if(!force_reuse &&
+         conn_temp->bundle->num_connections <
          Curl_multi_max_host_connections(data->multi)) {
         /* We want a new connection anyway */
         reuse = FALSE;
