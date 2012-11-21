@@ -4752,13 +4752,18 @@ static CURLcode create_conn(struct SessionHandle *data,
 
   *async = FALSE;
 
+#if 0
   /* Have we already created a connection? This happens when we retry after
      having been denied to open a new connection. */
   if(data->state.pending_conn) {
     conn = data->state.pending_conn;
+    data->state.pending_conn = NULL;
+
     *in_connect = conn;
   }
-  else {
+  else
+#endif
+{
     /*************************************************************
      * Check input data
      *************************************************************/
@@ -5133,9 +5138,14 @@ static CURLcode create_conn(struct SessionHandle *data,
     if(no_connections_available) {
       infof(data, "No connections available.\n");
 
+#if 0
       /* Save the connection so we don't have to create it again when
          we retry later on. */
       data->state.pending_conn = conn;
+#else
+      conn_free(conn);
+      *in_connect = NULL;
+#endif
 
       return CURLE_NO_CONNECTION_AVAILABLE;
     }
