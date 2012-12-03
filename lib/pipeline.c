@@ -67,16 +67,24 @@ bool Curl_pipeline_penalized(struct SessionHandle *data,
       Curl_multi_content_length_penalty_size(data->multi);
     curl_off_t chunk_penalty_size =
       Curl_multi_chunk_length_penalty_size(data->multi);
+    curl_off_t recv_size = -2; /* Make it easy to spot in the log */
 
-    if(penalty_size > 0 && conn->data->req.size > penalty_size)
-      penalized = TRUE;
+    /* Find the head of the recv pipe, if any */
+    if(conn->recv_pipe && conn->recv_pipe->head) {
+      struct SessionHandle *recv_handle = conn->recv_pipe->head->ptr;
+
+      recv_size = recv_handle->req.size;
+
+      if(penalty_size > 0 && recv_size > penalty_size)
+        penalized = TRUE;
+    }
 
     if(chunk_penalty_size > 0 &&
        (curl_off_t)conn->chunk.datasize > chunk_penalty_size)
       penalized = TRUE;
 
     infof(data, "Conn: %d (%p) Receive pipe weight: (%d/%d), penalized: %d\n",
-          conn->connection_id, conn, conn->data->req.size,
+          conn->connection_id, conn, recv_size,
           conn->chunk.datasize, penalized);
     return penalized;
   }
