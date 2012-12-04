@@ -5088,7 +5088,9 @@ static CURLcode create_conn(struct SessionHandle *data,
       infof(data, "Found connection: %d with %d in the pipe\n",
             conn_temp->connection_id, pipeLen);
 
-      if(!force_reuse &&
+      /* We may choose to open a new connection anyway if it already
+         has requests in the pipe */
+      if(!force_reuse && pipeLen > 0 &&
          conn_temp->bundle->num_connections <
          Curl_multi_max_host_connections(data->multi)) {
         /* We want a new connection anyway */
