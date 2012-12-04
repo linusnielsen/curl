@@ -687,12 +687,6 @@ CURLMcode curl_multi_remove_handle(CURLM *multi_handle,
            Note that this ignores the return code simply because there's
            nothing really useful to do with it anyway! */
         (void)Curl_done(&easy->easy_conn, easy->result, premature);
-
-        /* Remove the association between the connection and the handle */
-        if(easy->easy_conn) {
-          easy->easy_conn->data = NULL;
-          easy->easy_conn = NULL;
-        }
       }
       else
         /* Clear connection pipelines, if Curl_done above was not called */
@@ -711,6 +705,12 @@ CURLMcode curl_multi_remove_handle(CURLM *multi_handle,
     easy->state = CURLM_STATE_COMPLETED;
     singlesocket(multi, easy); /* to let the application know what sockets
                                   that vanish with this handle */
+
+    /* Remove the association between the connection and the handle */
+    if(easy->easy_conn) {
+      easy->easy_conn->data = NULL;
+      easy->easy_conn = NULL;
+    }
 
     Curl_easy_addmulti(easy->easy_handle, NULL); /* clear the association
                                                     to this multi handle */
