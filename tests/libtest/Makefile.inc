@@ -190,6 +190,8 @@ lib599_SOURCES = lib599.c $(SUPPORTFILES)
 
 lib1500_SOURCES = lib1500.c $(SUPPORTFILES) $(TESTUTIL)
 
+lib1900_SOURCES = lib1900.c $(SUPPORTFILES) $(TESTUTIL) $(WARNLESS)
+
 libauthretry_SOURCES = libauthretry.c $(SUPPORTFILES)
 
 libntlmconnect_SOURCES = libntlmconnect.c $(SUPPORTFILES) $(TESTUTIL)
