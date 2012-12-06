@@ -33,6 +33,7 @@
 #include "rawstr.h"
 #include "bundles.h"
 
+#include "curl_memory.h"
 /* The last #include file should be: */
 #include "memdebug.h"
 
