@@ -5092,7 +5092,9 @@ static CURLcode create_conn(struct SessionHandle *data,
          has requests in the pipe */
       if(!force_reuse && pipeLen > 0 &&
          conn_temp->bundle->num_connections <
-         Curl_multi_max_host_connections(data->multi)) {
+         Curl_multi_max_host_connections(data->multi) &&
+         data->state.conn_cache->num_connections <
+         Curl_multi_max_total_connections(data->multi)) {
         /* We want a new connection anyway */
         reuse = FALSE;
 
