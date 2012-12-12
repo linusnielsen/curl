@@ -158,9 +158,13 @@ Example:
 (Added in 7.xx.yy)
 .IP CURLMOPT_PIPELINING_SERVER_BL
 Pass an array of char *, ending with NULL. This is a list of server types
-(in the Server: HTTP header) that are blacklisted from pipelining, i.e server
-types that are known to not support HTTP pipelining. The array is copied by
-libcurl.
+prefixes (in the Server: HTTP header) that are blacklisted from pipelining,
+i.e server types that are known to not support HTTP pipelining. The array is
+copied by libcurl.
+
+Note that the comparison matches if the Server: header begins with the string
+in the blacklist, i.e "Server: Ninja 1.2.3" and "Server: Ninja 1.4.0" can 
+both be blacklisted by having "Ninja" in the backlist.
 
 The default value is NULL, which means that there is no blacklist.
 

@@ -291,7 +291,8 @@ bool Curl_pipeline_server_blacklisted(struct SessionHandle *handle,
         char *bl_server_name;
 
         bl_server_name = curr->ptr;
-        if(Curl_raw_equal(bl_server_name, server_name)) {
+        if(Curl_raw_nequal(bl_server_name, server_name,
+                           strlen(bl_server_name))) {
           infof(handle, "Server %s is blacklisted\n", server_name);
           return TRUE;
         }
