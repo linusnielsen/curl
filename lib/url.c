@@ -2648,8 +2648,7 @@ static bool IsPipeliningPossible(const struct SessionHandle *handle,
      Curl_multi_pipeline_enabled(handle->multi) &&
      (handle->set.httpreq == HTTPREQ_GET ||
       handle->set.httpreq == HTTPREQ_HEAD) &&
-     handle->set.httpversion != CURL_HTTP_VERSION_1_0 &&
-     !conn->bits.close)
+     handle->set.httpversion != CURL_HTTP_VERSION_1_0)
     return TRUE;
 
   return FALSE;
