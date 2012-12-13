@@ -21,6 +21,7 @@ noinst_PROGRAMS = chkhostname \
   lib569 lib570 lib571 lib572 lib573 lib582 lib583 lib585 lib586 lib587 \
   lib590 lib591 lib597 lib598 lib599 libauthretry libntlmconnect \
   lib1500 \
+  lib1900 \
   lib2033
 
 chkhostname_SOURCES = chkhostname.c $(top_srcdir)/lib/curl_gethostname.c
