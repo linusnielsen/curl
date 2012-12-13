@@ -765,8 +765,13 @@ void Curl_multi_handlePipeBreak(struct SessionHandle *data)
 {
   struct Curl_one_easy *one_easy = data->set.one_easy;
 
-  if(one_easy)
+  if(one_easy) {
+    infof(data,
+          "The request to %s must be retried, pipe broke on connection %d\n",
+          data->change.url, one_easy->easy_conn->connection_id);
+
     one_easy->easy_conn = NULL;
+  }
 }
 
 static int waitconnect_getsock(struct connectdata *conn,
