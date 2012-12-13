@@ -18,10 +18,10 @@ Adding handle 3
 Adding handle 4
 Adding handle 5
 Adding handle 6
+Handle 1 Completed with status 0
 Handle 4 Completed with status 0
 Handle 5 Completed with status 0
 Handle 6 Completed with status 0
-Handle 1 Completed with status 0
 Handle 2 Completed with status 0
 Handle 3 Completed with status 0
 </data>
@@ -36,14 +36,14 @@ http-pipe
 lib1900
 </tool>
  <name>
-HTTP GET using pipelining
+HTTP GET using pipelining, broken pipe
  </name>
  <command>
 http://%HOSTIP:%HTTPPIPEPORT/
 </command>
 <file name="log/urls.txt">
 0 1k.txt
-1000 100k.txt
+1000 connection_close.txt
 0 1k.txt
 0 1k.txt
 0 1k.txt

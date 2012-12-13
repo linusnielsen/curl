@@ -244,6 +244,12 @@ class ResponseBuilder(object):
         result += self._BuildResponse(
             '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60'], body)
 
+      elif path == '/connection_close.txt':
+        body = 'azbycxdwevfugthsirjqkplomn'
+        result += self._BuildResponse(
+            '200 OK', ['Content-Length: 26', 'Cache-Control: max-age=60', 'Connection: close'], body)
+        self._processed_end = True
+
       elif path == '/1k.txt':
         str = '0123456789abcdef'
         body = ''.join([str for num in xrange(64)])
@@ -293,6 +299,8 @@ class ResponseBuilder(object):
 
       else:
         result += self._BuildResponse('404 Not Found', ['Content-Length: 7'], 'Go away')
+      if self._processed_end:
+          break
     self._requested_paths = []
     return result
 
@@ -387,7 +395,7 @@ class PipelineRequestHandler(SocketServer.BaseRequestHandler):
           elif mode & select.EPOLLOUT:
             num_bytes_sent = self.request.send(self._send_buffer[0:4096])
             self._send_buffer = self._send_buffer[num_bytes_sent:]
-            time.sleep(0.01)
+            time.sleep(0.05)
           else:
             return
 

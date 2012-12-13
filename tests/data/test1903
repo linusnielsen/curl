@@ -36,7 +36,7 @@ http-pipe
 lib1900
 </tool>
  <name>
-HTTP GET using pipelining
+HTTP GET using pipelining, penalized on content-length
  </name>
  <command>
 http://%HOSTIP:%HTTPPIPEPORT/
@@ -44,11 +44,11 @@ http://%HOSTIP:%HTTPPIPEPORT/
 <file name="log/urls.txt">
 0 1k.txt
 1000 100k.txt
-0 1k.txt
-0 1k.txt
-0 1k.txt
-0 1k.txt
-0 1k.txt
+550 alphabet.txt
+10 alphabet.txt
+10 alphabet.txt
+10 alphabet.txt
+10 alphabet.txt
 </client>
 
 # Verify data after the test has been "shot"
