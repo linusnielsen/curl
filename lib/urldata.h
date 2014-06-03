@@ -229,6 +229,10 @@
 #define CURLMAX(x,y) ((x)>(y)?(x):(y))
 #define CURLMIN(x,y) ((x)<(y)?(x):(y))
 
+/* For indexing arrays of common data for both download and upload,
+   e.g max_speed[] */
+#define IDX_DOWNLOAD 0
+#define IDX_UPLOAD   1
 
 #ifdef HAVE_GSSAPI
 /* Types needed for krb5-ftp connections */
@@ -1474,9 +1478,7 @@ struct UserDefined {
   curl_off_t filesize;  /* size of file to upload, -1 means unknown */
   long low_speed_limit; /* bytes/second */
   long low_speed_time;  /* number of seconds */
-  curl_off_t max_send_speed; /* high speed limit in bytes/second for upload */
-  curl_off_t max_recv_speed; /* high speed limit in bytes/second for
-                                download */
+  curl_off_t max_speed[2]; /* high speed limit in bytes/second for upload */
   curl_off_t set_resume_from;  /* continue [ftp] transfer from here */
   struct curl_slist *headers; /* linked list of extra headers */
   struct curl_slist *proxyheaders; /* linked list of extra CONNECT headers */
@@ -1678,6 +1680,20 @@ struct SessionHandle {
   iconv_t inbound_cd;          /* for translating from the network encoding */
   iconv_t utf8_cd;             /* for translating to UTF8 */
 #endif /* CURL_DOES_CONVERSIONS && HAVE_ICONV */
+
+  /* bandwidth throttling */
+  int overshare;
+
+  struct timeval last_bucket_update;
+  curl_off_t token_bucket[2];
+  curl_off_t last_bucket_amount[2];
+
+  struct timeval last_speed_update;
+  curl_off_t last_amount[2];
+  curl_off_t speed_ack[2];
+
+  curl_off_t current_speed[2];
+
   unsigned int magic;          /* set to a CURLEASY_MAGIC_NUMBER */
 };
 

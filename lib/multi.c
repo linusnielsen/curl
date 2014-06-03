@@ -50,6 +50,8 @@
 /* The last #include file should be: */
 #include "memdebug.h"
 
+#undef BW_DEBUG
+
 /*
   CURL_SOCKET_HASH_TABLE_SIZE should be a prime number. Increasing it from 97
   to 911 takes on a 32-bit machine 4 x 804 = 3211 more bytes.  Still, every
@@ -79,6 +81,12 @@ static CURLMcode add_next_timeout(struct timeval now,
                                   struct SessionHandle *d);
 static CURLMcode multi_timeout(struct Curl_multi *multi,
                                long *timeout_ms);
+static void bw_add_handle(struct Curl_multi *multi,
+                          struct SessionHandle *data,
+                          int direction);
+static void bw_remove_handle(struct Curl_multi *multi,
+                             struct SessionHandle *data,
+                             int direction);
 
 #ifdef DEBUGBUILD
 static const char * const statename[]={
@@ -455,6 +463,16 @@ CURLMcode curl_multi_add_handle(CURLM *multi_handle,
      handle is added */
   memset(&multi->timer_lastcall, 0, sizeof(multi->timer_lastcall));
 
+  /* Recalculate the bandwidth distribution if we have bandwidth limitation
+     active */
+  if(multi->max_speed[IDX_DOWNLOAD] > 0) {
+    bw_add_handle(multi, data, IDX_DOWNLOAD);
+  }
+
+  if(multi->max_speed[IDX_UPLOAD] > 0) {
+    bw_add_handle(multi, data, IDX_UPLOAD);
+  }
+
   update_timer(multi);
   return CURLM_OK;
 }
@@ -604,10 +622,20 @@ CURLMcode curl_multi_remove_handle(CURLM *multi_handle,
     else
       multi->easylp = data->prev; /* point to last node */
 
+    multi->num_easy--; /* one less to care about now */
+
+    /* Recalculate the bandwidth distribution if we have bandwidth limitation
+       active */
+    if(multi->max_speed[IDX_DOWNLOAD] > 0) {
+      bw_remove_handle(multi, data, IDX_DOWNLOAD);
+    }
+
+    if(multi->max_speed[IDX_UPLOAD] > 0) {
+      bw_remove_handle(multi, data, IDX_UPLOAD);
+    }
+
     /* NOTE NOTE NOTE
        We do not touch the easy handle here! */
-
-    multi->num_easy--; /* one less to care about now */
 
     update_timer(multi);
     return CURLM_OK;
@@ -915,6 +943,70 @@ CURLMcode curl_multi_wait(CURLM *multi_handle,
   if(ret)
     *ret = i;
   return CURLM_OK;
+}
+
+static void bw_update_speed(struct timeval now,
+                            struct SessionHandle *data)
+{
+  curl_off_t amount;
+  long time_since_update;
+  curl_off_t speed;
+  curl_off_t tdiff;
+  curl_off_t transferred[2];
+  int i;
+
+  /* Calculate the bandwidth limitation with microsecond resolution */
+  tdiff = (now.tv_sec * 1000000L + now.tv_usec) -
+    (data->last_bucket_update.tv_sec * 1000000L +
+     data->last_bucket_update.tv_usec);
+
+  transferred[IDX_DOWNLOAD] = data->progress.downloaded;
+  transferred[IDX_UPLOAD] = data->progress.uploaded;
+
+  /* We use the Token Bucket algorithm to throttle the bandwidth */
+  for(i = 0;i < 2;i++) {
+    /* Add the theoretical maximum amount to transfer to the bucket, then
+       subtract the actual transferred amount. */
+    if(data->token_bucket[i] < data->set.max_speed[i]) {
+      data->token_bucket[i] += (curl_off_t)
+        ((double)data->set.max_speed[i] *
+         (double)tdiff / 1000000.0);
+
+      if(data->token_bucket[i] > data->set.max_speed[i])
+        data->token_bucket[i] = data->set.max_speed[i];
+    }
+
+    data->token_bucket[i] -= transferred[i] - data->last_bucket_amount[i];
+    data->last_bucket_amount[i] = transferred[i];
+  }
+
+  data->last_bucket_update = now;
+
+#ifdef BW_DEBUG
+  printf("dl bucket: %ld\n", data->token_bucket[IDX_DOWNLOAD]);
+  printf("ul bucket: %ld\n", data->token_bucket[IDX_UPLOAD]);
+#endif
+
+  /* Keep a running average of the transfer speeds */
+  time_since_update = Curl_tvdiff(now, data->last_speed_update);
+  if(time_since_update >= 10) {
+    data->last_speed_update = now;
+
+    for(i = 0;i < 2;i++) {
+      amount = transferred[i] - data->last_amount[i];
+      data->last_amount[i] = transferred[i];
+
+      speed = amount*CURL_OFF_T_C(1000)/time_since_update;
+      data->speed_ack[i] -= data->speed_ack[i] / 4;
+      data->speed_ack[i] += speed;
+      data->current_speed[i] = data->speed_ack[i] / 4;
+    }
+
+#ifdef BW_DEBUG
+    printf("dl speed: %ld\n", data->current_speed[IDX_DOWNLOAD]);
+    printf("ul speed: %ld\n", data->current_speed[IDX_UPLOAD]);
+#endif
+  }
 }
 
 static CURLMcode multi_runsingle(struct Curl_multi *multi,
@@ -1434,51 +1526,90 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
 
     case CURLM_STATE_TOOFAST: /* limit-rate exceeded in either direction */
       /* if both rates are within spec, resume transfer */
-      if(Curl_pgrsUpdate(data->easy_conn))
-        data->result = CURLE_ABORTED_BY_CALLBACK;
-      else
-        data->result = Curl_speedcheck(data, now);
+      {
+        int buffersize = (int)(data->set.buffer_size ?
+                               data->set.buffer_size : BUFSIZE);
 
-      if(( (data->set.max_send_speed == 0) ||
-           (data->progress.ulspeed < data->set.max_send_speed ))  &&
-         ( (data->set.max_recv_speed == 0) ||
-           (data->progress.dlspeed < data->set.max_recv_speed)))
-        multistate(data, CURLM_STATE_PERFORM);
+        if((data->set.max_speed[IDX_UPLOAD] > 0) &&
+           (buffersize > data->set.max_speed[IDX_UPLOAD])) {
+          buffersize = (int)data->set.max_speed[IDX_UPLOAD];
+        }
+
+        if((data->set.max_speed[IDX_DOWNLOAD] > 0) &&
+           (buffersize > data->set.max_speed[IDX_DOWNLOAD])) {
+          buffersize = (int)data->set.max_speed[IDX_DOWNLOAD];
+        }
+
+#ifdef BW_DEBUG
+        printf("bsize: %d\n", buffersize);
+#endif
+
+        Curl_pgrsUpdate(data->easy_conn);
+
+        if(( (data->set.max_speed[IDX_UPLOAD] == 0) ||
+             (data->token_bucket[IDX_UPLOAD] >= buffersize))  &&
+           ( (data->set.max_speed[IDX_DOWNLOAD] == 0) ||
+             (data->token_bucket[IDX_DOWNLOAD] >= buffersize))) {
+          multistate(data, CURLM_STATE_PERFORM);
+          result = CURLM_CALL_MULTI_PERFORM;
+        }
+        else {
+          /* calculate upload rate-limitation timeout. */
+          timeout_ms = Curl_sleep_time(data->set.max_speed[IDX_UPLOAD],
+                                       data->current_speed[IDX_UPLOAD],
+                                       buffersize);
+          Curl_expire(data, timeout_ms);
+
+          /* Calculate download rate-limitation timeout. */
+          timeout_ms = Curl_sleep_time(data->set.max_speed[IDX_DOWNLOAD],
+                                       data->current_speed[IDX_DOWNLOAD],
+                                       buffersize);
+          Curl_expire(data, timeout_ms);
+        }
+      }
       break;
 
     case CURLM_STATE_PERFORM:
       {
       char *newurl = NULL;
       bool retry = FALSE;
+      int buffersize = (int)(data->set.buffer_size ?
+                             data->set.buffer_size : BUFSIZE);
+
+      if((data->set.max_speed[IDX_UPLOAD] > 0) &&
+         (buffersize > data->set.max_speed[IDX_UPLOAD])) {
+        buffersize = (int)data->set.max_speed[IDX_UPLOAD];
+      }
+
+      if((data->set.max_speed[IDX_DOWNLOAD] > 0) &&
+         (buffersize > data->set.max_speed[IDX_DOWNLOAD])) {
+        buffersize = (int)data->set.max_speed[IDX_DOWNLOAD];
+      }
 
       /* check if over send speed */
-      if((data->set.max_send_speed > 0) &&
-         (data->progress.ulspeed > data->set.max_send_speed)) {
-        int buffersize;
+      if((data->set.max_speed[IDX_UPLOAD] > 0) &&
+         data->token_bucket[IDX_UPLOAD] < buffersize) {
 
         multistate(data, CURLM_STATE_TOOFAST);
 
         /* calculate upload rate-limitation timeout. */
-        buffersize = (int)(data->set.buffer_size ?
-                           data->set.buffer_size : BUFSIZE);
-        timeout_ms = Curl_sleep_time(data->set.max_send_speed,
-                                     data->progress.ulspeed, buffersize);
+        timeout_ms = Curl_sleep_time(data->set.max_speed[IDX_UPLOAD],
+                                     data->current_speed[IDX_UPLOAD],
+                                     buffersize);
         Curl_expire(data, timeout_ms);
         break;
       }
 
-      /* check if over recv speed */
-      if((data->set.max_recv_speed > 0) &&
-         (data->progress.dlspeed > data->set.max_recv_speed)) {
-        int buffersize;
+      /* check if over receive speed */
+      if((data->set.max_speed[IDX_DOWNLOAD] > 0) &&
+         data->token_bucket[IDX_DOWNLOAD] < buffersize) {
 
         multistate(data, CURLM_STATE_TOOFAST);
 
-         /* Calculate download rate-limitation timeout. */
-        buffersize = (int)(data->set.buffer_size ?
-                           data->set.buffer_size : BUFSIZE);
-        timeout_ms = Curl_sleep_time(data->set.max_recv_speed,
-                                     data->progress.dlspeed, buffersize);
+        /* Calculate download rate-limitation timeout. */
+        timeout_ms = Curl_sleep_time(data->set.max_speed[IDX_DOWNLOAD],
+                                     data->current_speed[IDX_DOWNLOAD],
+                                     buffersize);
         Curl_expire(data, timeout_ms);
         break;
       }
@@ -1728,9 +1859,298 @@ static CURLMcode multi_runsingle(struct Curl_multi *multi,
     multistate(data, CURLM_STATE_MSGSENT);
   }
 
+  /* Update the transfer speed if bandwidth limitation is active */
+  if(data->set.max_speed[IDX_DOWNLOAD] > 0 ||
+     data->set.max_speed[IDX_UPLOAD] > 0) {
+    bw_update_speed(now, data);
+  }
+
   return result;
 }
 
+static void bw_add_handle(struct Curl_multi *multi,
+                          struct SessionHandle *new_handle,
+                          int direction)
+{
+  struct SessionHandle *data;
+  curl_off_t bwe_ideal;
+  curl_off_t bwe_min;
+  curl_off_t remainder;
+  curl_off_t amount;
+  int handles_left;
+
+  bwe_ideal = multi->max_speed[direction] / multi->num_easy;
+  bwe_min = bwe_ideal / 2;
+
+  if(multi->num_easy == 1) {
+    multi->easyp->set.max_speed[direction] = bwe_ideal;
+    return;
+  }
+
+  handles_left = multi->num_easy - 1;
+  remainder = bwe_ideal;
+
+  data = multi->easyp;
+  while(data) {
+    /* Set the speed to the ideal bandwidth if it is the new handle. */
+    if(data == new_handle) {
+      data->set.max_speed[direction] = bwe_ideal;
+    }
+    else {
+      /* Try to subtract an equal amount from all other handles
+         to redistribute the bandwidth. We round the amount up
+         to avoid having a remainder left when reaching the last
+         handle.*/
+      amount = (remainder + handles_left/2) / handles_left;
+      amount = CURLMIN(amount, data->set.max_speed[direction] - bwe_min);
+      data->set.max_speed[direction] -= amount;
+      remainder -= amount;
+      handles_left--;
+    }
+
+    data = data->next; /* operate on next handle */
+  }
+}
+
+static void bw_remove_handle(struct Curl_multi *multi,
+                             struct SessionHandle *easy_handle,
+                             int direction)
+{
+  struct SessionHandle *data;
+  curl_off_t remainder;
+  curl_off_t amount;
+  int handles_left;
+
+  handles_left = multi->num_easy;
+  remainder = easy_handle->set.max_speed[direction];
+
+  /* Disable the limitation on the easy handle, to avoid surprises */
+  easy_handle->set.max_speed[direction] = 0;
+
+  data = multi->easyp;
+  while(data) {
+    /* Try to add an equal amount to all other handles
+       to redistribute the bandwidth. */
+    amount = remainder / handles_left;
+    data->set.max_speed[direction] += amount;
+    remainder -= amount;
+    handles_left--;
+
+    data = data->next; /* operate on next handle */
+  }
+}
+
+static void bw_recalculate(struct Curl_multi *multi, int direction)
+{
+  curl_off_t bwamount;
+  curl_off_t bwe_ideal;
+  curl_off_t bwe_min;
+  curl_off_t slow_margin;
+  curl_off_t amount;
+  curl_off_t bw_sum;
+  int faste = 0;
+  curl_off_t delta = 0;
+  curl_off_t redistribution_amount = 0;
+  curl_off_t oversharers = 0;
+  curl_off_t overshare_amount = 0;
+  struct SessionHandle *data;
+
+  /* This function can be called without any handles attached */
+  if(multi->num_easy == 0)
+    return;
+
+  bwamount = multi->max_speed[direction];
+
+  /* Special case: only one handle */
+  if(multi->num_easy == 1) {
+    data = multi->easyp;
+
+    data->set.max_speed[direction] = bwamount;
+
+#ifdef BW_DEBUG
+    printf("%s: % 8ld % 8ld (% 3ld%%) State: %d, speed: % 8ld\n",
+           direction == IDX_DOWNLOAD?"DL":"UL",
+           data->progress.dlspeed,
+           data->set.max_speed[direction],
+           data->overshare,
+           data->mstate,
+           data->current_speed[direction]);
+#endif
+    return;
+  }
+
+  bwe_ideal = bwamount / multi->num_easy;
+  bwe_min = bwe_ideal / 2;
+
+#ifdef BW_DEBUG
+  printf("---\n");
+  printf("bwamount: %ld, bwe_ideal: %ld\n", bwamount, bwe_ideal);
+#endif
+
+  /* Pass 1
+     - Calculate how much unused bandwidth that can be redistributed to
+       faster handles. We only reduce 20% at a time.
+     - Count the number of handles that want more bandwidth.
+  */
+  data = multi->easyp;
+  while(data) {
+    /* Uninitialized handles are set to bwe_ideal */
+    if(data->set.max_speed[direction] == 0) {
+      data->set.max_speed[direction] = bwe_ideal;
+    }
+
+    slow_margin = CURLMAX((data->set.max_speed[direction] -
+                           data->set.max_speed[direction] / 5),
+                          bwe_min); /* 80% */
+
+    /* Calculate how much bandwidth we can redistribute to fast handles */
+    if(data->current_speed[direction] < slow_margin) {
+      delta += data->set.max_speed[direction] - slow_margin;
+    }
+
+    /* Count the candidates for bandwidth increase */
+    if(data->current_speed[direction] > data->set.max_speed[direction]) {
+      faste++;
+    }
+
+    data = data->next; /* operate on next handle */
+  }
+
+  /* Pass 2
+     This is only done if there are handles that want more bandwidth.
+     - Reduce the bandwidth for the slow handles.
+     - Distribute the unused bandwidth evenly among the fast handles.
+     - Calculate how much bandwidth that can be redistributed from the
+       fast handles to those that are right below bwe_ideal.
+  */
+  if(faste > 0) {
+    data = multi->easyp;
+    while(data) {
+      slow_margin = CURLMAX((data->set.max_speed[direction] -
+                             data->set.max_speed[direction] / 5),
+                            bwe_min); /* 80% */
+
+      /* Reduce the bandwidth if it is slow */
+      if(data->current_speed[direction] < slow_margin) {
+        data->set.max_speed[direction] = slow_margin;
+      }
+
+      /* Increase the bandwidth if it is fast */
+      if(data->current_speed[direction] > data->set.max_speed[direction]) {
+        amount = (delta + faste/2) / faste;
+
+        data->set.max_speed[direction] =
+          data->set.max_speed[direction] + amount;
+        delta -= amount;
+      }
+
+      /* Count the handles that are over bwe_ideal */
+      if(data->set.max_speed[direction] > bwe_ideal) {
+        oversharers++;
+        overshare_amount += data->set.max_speed[direction] - bwe_ideal;
+      }
+
+      /* Count the candidates for small bandwidth increase */
+      if(data->current_speed[direction] >= slow_margin &&
+         data->set.max_speed[direction] < bwe_ideal) {
+        amount = data->set.max_speed[direction] / 5; /* 20% */
+        redistribution_amount +=
+          CURLMIN(amount, bwe_ideal - data->set.max_speed[direction]);
+      }
+
+      data = data->next; /* operate on next handle */
+    }
+  }
+
+  bw_sum = 0;
+
+  /* Pass 3
+     - Redistribute the bandwidth from the fast handles to the handles right
+       below bwe_ideal. The fast handles contribute differently depending
+       on how much they use of the overshared amount.
+     - Calculate the total sum of the allocated bandwidth. The total
+       bandwidth is likely different from bwamount due to rounding errors
+       in the redistribution calculations.
+  */
+  data = multi->easyp;
+  while(data) {
+    slow_margin = CURLMAX((data->set.max_speed[direction] -
+                           data->set.max_speed[direction] / 5),
+                          bwe_min); /* 80% */
+
+    data->overshare = 0;
+
+    if(oversharers > 0) {
+      if(data->set.max_speed[direction] > bwe_ideal) {
+        /* Calculate the percentage of the overshared amount */
+        data->overshare = (int)(100 * (data->set.max_speed[direction]
+                                       - bwe_ideal) / overshare_amount);
+
+        /* Reduce the bandwidth according to the percentage */
+        amount = redistribution_amount * data->overshare / 100;
+        data->set.max_speed[direction] -= amount;
+      }
+      else {
+        if(data->current_speed[direction] >= slow_margin &&
+           data->set.max_speed[direction] < bwe_ideal) {
+          /* Increase the bandwidth by 20%, up to bwe_ideal at most */
+          amount = data->set.max_speed[direction] / 5; /* 20% */
+          amount = CURLMIN(amount, bwe_ideal - data->set.max_speed[direction]);
+          data->set.max_speed[direction] += amount;
+        }
+      }
+    }
+
+    bw_sum += data->set.max_speed[direction];
+
+    data = data->next; /* operate on next handle */
+  }
+
+  /* Pass 4
+     - Redistribute the unused/overused bandwidth from earlier passes
+       (rounding errors) to/from the first handle(s) we find in the list
+       that allow it.
+  */
+  data = multi->easyp;
+  while(data) {
+    /* Subtract overused bandwidth if possible */
+    if(bw_sum > bwamount &&
+       data->set.max_speed[direction] > bwe_ideal) {
+      amount = CURLMIN(bw_sum - bwamount,
+                       data->set.max_speed[direction] - bwe_ideal);
+      data->set.max_speed[direction] -= amount;
+      bw_sum -= amount;
+    }
+
+    /* Add underused bandwidth */
+    if(bw_sum < bwamount) {
+      amount = bwamount - bw_sum;
+      data->set.max_speed[direction] += amount;
+      bw_sum += amount;
+    }
+
+#ifdef BW_DEBUG
+    printf("%s: % 8ld % 8ld (% 3ld%%) State: %d, speed: % 8ld\n",
+           direction == IDX_DOWNLOAD?"DL":"UL",
+           data->progress.dlspeed,
+           data->set.max_speed[direction],
+           data->overshare,
+           data->mstate,
+           data->current_speed[direction]);
+#endif
+
+    data = data->next; /* operate on next handle */
+  }
+
+#ifdef BW_DEBUG
+  printf("DBG: overshare: %ld\n", overshare_amount);
+  printf("DBG: redist: %ld\n", redistribution_amount);
+  printf("DBG: sum: %ld\n", bw_sum);
+#endif
+
+  if(bw_sum != bwamount)
+    exit(1);
+}
 
 CURLMcode curl_multi_perform(CURLM *multi_handle, int *running_handles)
 {
@@ -1742,6 +2162,14 @@ CURLMcode curl_multi_perform(CURLM *multi_handle, int *running_handles)
 
   if(!GOOD_MULTI_HANDLE(multi))
     return CURLM_BAD_HANDLE;
+
+  if(multi->max_speed[IDX_DOWNLOAD] > 0) {
+    bw_recalculate(multi, IDX_DOWNLOAD);
+  }
+
+  if(multi->max_speed[IDX_UPLOAD] > 0) {
+    bw_recalculate(multi, IDX_UPLOAD);
+  }
 
   data=multi->easyp;
   while(data) {
@@ -2362,6 +2790,18 @@ CURLMcode curl_multi_setopt(CURLM *multi_handle,
   case CURLMOPT_MAX_TOTAL_CONNECTIONS:
     multi->max_total_connections = va_arg(param, long);
     break;
+  case CURLMOPT_MAX_SEND_SPEED_LARGE:
+    multi->max_speed[IDX_UPLOAD] = va_arg(param, curl_off_t);
+    if(multi->max_speed[IDX_UPLOAD] > 0) {
+      bw_recalculate(multi, IDX_UPLOAD);
+    }
+    break;
+  case CURLMOPT_MAX_RECV_SPEED_LARGE:
+    multi->max_speed[IDX_DOWNLOAD] = va_arg(param, curl_off_t);
+    if(multi->max_speed[IDX_DOWNLOAD] > 0) {
+      bw_recalculate(multi, IDX_DOWNLOAD);
+    }
+    break;
   default:
     res = CURLM_UNKNOWN_OPTION;
     break;
@@ -2608,6 +3048,14 @@ void Curl_expire(struct SessionHandle *data, long milli)
   }
   else {
     struct timeval set;
+
+    /* If bandwidth limitation is active, we need to call multi_perform()
+       often */
+    if((multi->max_speed[IDX_DOWNLOAD] > 0 ||
+        multi->max_speed[IDX_UPLOAD] > 0) &&
+       milli > 100) {
+      milli = 100;
+    }
 
     set = Curl_tvnow();
     set.tv_sec += milli/1000;

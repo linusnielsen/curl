@@ -133,6 +133,9 @@ struct Curl_multi {
   void *timer_userp;
   struct timeval timer_lastcall; /* the fixed time for the timeout for the
                                     previous callback */
+
+  /* bandwidth throttling */
+  curl_off_t max_speed[2];
 };
 
 #endif /* HEADER_CURL_MULTIHANDLE_H */

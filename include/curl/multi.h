@@ -365,6 +365,10 @@ typedef enum {
   /* maximum number of open connections in total */
   CINIT(MAX_TOTAL_CONNECTIONS, LONG, 13),
 
+  /* limit-rate: maximum number of bytes per second to send or receive */
+  CINIT(MAX_SEND_SPEED_LARGE, OFF_T, 14),
+  CINIT(MAX_RECV_SPEED_LARGE, OFF_T, 15),
+
   CURLMOPT_LASTENTRY /* the last unused */
 } CURLMoption;
 

@@ -1517,14 +1517,14 @@ CURLcode Curl_setopt(struct SessionHandle *data, CURLoption option,
      * When transfer uploads are faster then CURLOPT_MAX_SEND_SPEED_LARGE
      * bytes per second the transfer is throttled..
      */
-    data->set.max_send_speed=va_arg(param, curl_off_t);
+    data->set.max_speed[IDX_UPLOAD]=va_arg(param, curl_off_t);
     break;
   case CURLOPT_MAX_RECV_SPEED_LARGE:
     /*
      * When receiving data faster than CURLOPT_MAX_RECV_SPEED_LARGE bytes per
      * second the transfer is throttled..
      */
-    data->set.max_recv_speed=va_arg(param, curl_off_t);
+    data->set.max_speed[IDX_DOWNLOAD]=va_arg(param, curl_off_t);
     break;
   case CURLOPT_LOW_SPEED_TIME:
     /*
