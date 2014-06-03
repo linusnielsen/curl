@@ -204,6 +204,26 @@ is 1 will not be treated as unlimited. Instead it will open only 1 connection
 and try to pipeline on it.
 
 (Added in 7.30.0)
+.IP CURLMOPT_MAX_SEND_SPEED_LARGE
+Pass a curl_off_t as parameter.  Limits the total upload rate of all easy
+handles attached to the multi handle. Libcurl will redistribute the total
+upload rate among the easy handles to optimize the bandwidth usage.
+
+Note that any speed limit set with \fcurl_easy_setopt(3)\fP will be lost
+and the speed limit will be set to 0 by \fcurl_multi_remove_handle(3).
+Defaults to unlimited speed.
+
+(Added in X.XX.X)
+.IP CURL_OPT_MAX_RECV_SPEED_LARGE
+Pass a curl_off_t as parameter.  Limits the total download rate of all easy
+handles attached to the multi handle. Libcurl will redistribute the total
+download rate among the easy handles to optimize the bandwidth usage.
+
+Note that any speed limit set with \fcurl_easy_setopt(3)\fP will be lost
+and the speed limit will be set to 0 by \fcurl_multi_remove_handle(3).
+Defaults to unlimited speed.
+
+(Added in X.XX.X)
 .SH RETURNS
 The standard CURLMcode for multi interface error codes. Note that it returns a
 CURLM_UNKNOWN_OPTION if you try setting an option that this version of libcurl

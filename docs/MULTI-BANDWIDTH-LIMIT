@@ -1,0 +1,139 @@
+Maximum bandwidth cap per multi handle, spread out over N transfers
+===================================================================
+
+* Allow the bandwidth limit to get changed at any given moment and adapt
+  accordingly.
+
+* Each easy handle sets its own individual bandwidth limit with the existing
+  libcurl functionality. The existing functionality has a ramp up/down logic.
+
+Total allowed bandwidth for the multi handle = BWAMOUNT (bytes/sec)
+Number of easy handles at a given moment = E
+Bandwidth share per easy handles by default = 100/E %
+Bandwidth per easy handle = BWE = share * BWAMOUNT
+
+Each easy handle has its own dynamic BWE and it remembers the "ideal"
+bandwidth (BWE-IDEAL). By default, the BWE will not be allowed to shrink
+below BWE-IDEAL/2 (BWE-MIN) or go above BWE-IDEAL*2 (BWE-MAX).
+
+At a given interval, a re-evaluation of all currently active easy handles is
+made:
+
+  For all current transfers that are slower than MARGIN% (SLOWE), reduce BWE
+  by MARGIN% and the add the reduced amount to DELTA.
+
+  DELTA will then be divided equally among and added to all the easy handles
+  (FASTE) that were above maximum capacity (within MAX% capacity) so
+  they will each get BWE += DELTA/FASTE. In each "fast" handle (BWE >
+  BWE-IDEAL) it will get the handle's share of all the fast handles'
+  overcapacity (OVERSHARE) stored.
+
+  This maintains the BWAMOUNT the same, spread out differently depending on
+  performance. BWE will grow or shrink depending on performance.
+
+  Handles that are close to their maximum _and_ have BWE < BWE-IDEAL get
+  an increase of their BWE with INC% (but never more than up to
+  BWE-IDEAL). The total increment done over all handles (DELTAINC) is then
+  deducted from all fast handles (BWE > BWE-IDEAL) according to their
+  OVERSHARE.
+
+As soon as a single transfer completes or otherwise gets removed from the
+multi handle, it's BWE-IDEAL value is distributed evenly to all remaining
+handles' BWE-IDEAL.
+
+When adding a new handle so that Enew = Eold + 1, the newly added handle will
+get BWE and BWE-IDEAL set to exactly BWAMOUNT / Enew. All other existing
+handles will get their BWE and BWE-IDEAL deducted by (BWAMOUNT / Enew) / Eold
+
+- The check interval needs to be considered so that it isn't too frequent to
+  waste CPU and yet not too infrequent to react too slowly on bandwidth
+  changes. The curl_multi_timeout() function will thus always return
+  timeouts no longer than 100ms.
+  
+
+------------------------------------------------------------------------
+
+EXAMPLE:
+
+limit 10000 bytes/sec (10 handles)
+
+First check:
+
+actual speed   limit (BWE)
+per handle
+ 0: 1000 (+)   1000
+ 1:  900       1000
+ 2:  700 (-)   1000
+ 3:  300 (-)   1000
+ 4: 1000 (+)   1000
+ 5: 1000 (+)   1000
+ 6: 1045 (+)   1000
+ 7:  950 (+)   1000
+ 8:  550 (-)   1000
+ 9:  800       1000
+   -----
+Total: 8245 bytes/sec
+
+(+) = considered maxed, within 5% of the limit
+(-) = considered slow as they are less than 80% of the limit (MARGIN% is 20)
+
+DELTA = 200 + 200 + 200 = 600
+
+add speed to each fast transfer = 600 / 5 = 120 bytes/sec
+reduce speed from slow transfers = 200 bytes/sec
+
+New distribution, the total bandwidth is still 10000 bytes/sec.
+
+actual speed   limit (BWE)
+per handle
+ 0: 1000 (+)   1120 (OVERSHARE 20%)
+ 1:  900       1000
+ 2:  700 (-)    800
+ 3:  300 (-)    800
+ 4: 1000 (+)   1120 (OVERSHARE 20%)
+ 5: 1000 (+)   1120 (OVERSHARE 20%)
+ 6: 1045 (+)   1120 (OVERSHARE 20%)
+ 7:  950 (+)   1120 (OVERSHARE 20%)
+ 8:  550 (-)    800
+ 9:  800       1000
+
+Now the total is lowered to 9000 bytes/sec so each handle will get *both*
+BWE-IDEAL and BWE lowered by (1000/E = 100) and the next calibration round
+is made. BWE-IDEAL is thus 900 for all handles.
+
+Actual measure speed: 9120 bytes/sec
+
+actual speed   limit (BWE)
+per handle
+ 0: 1100       1020
+ 1:  900        900
+ 2:  800 (*)    700
+ 3:  900 (*)    700
+ 4: 1300       1020
+ 5: 1120       1020
+ 6:  700       1020
+ 7:  950       1020
+ 8:  550        700
+ 9:  800        900
+
+(*) = within 5% of the limit, or above but with a BWE < BWE-IDEAL
+
+Two connections are identified as maxed but with a lowered BWE. INC% is
+20, so they get (BWE (700) * 20%) 140 bytes/sec added each. DELTAINC =
+280. 280 is then deducted from all 5 fast transfers according to their
+OVERSHARE. 56 is deducted from each (since they all have 20% OVERSHARE).
+
+New distribution, the total bandwidth is still 9000 bytes/sec.
+
+actual speed   limit (BWE)
+per handle
+ 0: 1100        964
+ 1:  900        900
+ 2:  800        840
+ 3:  900        840
+ 4: 1300        964
+ 5: 1120        964
+ 6:  700        964
+ 7:  950        964
+ 8:  550        700
+ 9:  800        900
